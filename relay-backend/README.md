@@ -1,10 +1,66 @@
-# Relay — Append-Only Layered AI Memory (Backend Prototype)
+# Relay — Append-Only Layered AI Memory
 
-Relay is a proof-of-concept for a "baton handoff" memory pattern: instead of an
-AI agent overwriting its own state every time something changes, each new fact
-is appended as a new row that points back at the fact before it. The full
-history stays intact and inspectable — you can always walk the chain backward
-to see exactly how the current state was reached.
+**Problem.** AI tools forget. Tell Claude something today, it's gone from
+context tomorrow, and gone the moment you switch to a different tool
+entirely. You end up re-explaining the same decisions over and over.
+
+**Idea.** Relay is a memory backend that saves what you decide as small
+facts, and never deletes or overwrites one. When a decision changes, the new
+fact links back to the old one instead of replacing it, so the full history
+of how your thinking changed stays intact and readable.
+
+**USP.** Every other memory tool overwrites a fact when it's updated. Relay
+never does. This isn't a theoretical choice, it's a direct fix to a real bug
+in a product I already shipped, see Team below.
+
+**Working MVP.** Not a mockup or a slide. Live backend, live database, a
+working web dashboard, and a real MCP server an AI assistant can call
+mid-conversation, all linked below.
+
+**Team.** Solo. Built by [Maan Ahir](https://linkedin.com/in/maanahir), who's
+been working hands-on with LLMs since 17. Already shipped two AI products
+before this one: Torqon (persistent AI memory,
+1,800+ downloads in its first week) and Pelladio (multi-model chat,
+waitlist live). Relay exists because using Torqon myself surfaced the exact
+gap it fixes, overwriting, not append-only, memory.
+
+**Usefulness & impact.** 70% of developers already use 2 or more AI coding
+tools at once (JetBrains AI Pulse, 2026), and almost none of those tools
+share memory. Anyone switching between Claude, Cursor, or any other
+MCP-connected tool stops repeating themselves the moment Relay is in the
+loop.
+
+**Scalability.** The underlying pattern already scaled once, Torqon runs the
+same core mechanic and hit 1,800+ downloads in week one. SQLite is a
+prototype choice, not a ceiling, the append-only schema is already just
+linked rows, so it moves to Postgres with no redesign. MCP means any AI tool
+can plug in without a custom integration per tool, the surface area doesn't
+grow with each new client.
+
+**Architecture.** See the diagram below.
+
+**Phone-first thinking.** The dashboard was built mobile-first from day one,
+not adapted after the fact, see "Live link" below for exactly what that
+means and why.
+
+**On-device / local models.** Fact extraction runs on Ollama (`llama3.2:1b`)
+entirely locally by default, no cloud call required, see "How the public
+link is deployed" below for how the same code also runs on a hosted model
+when deployed.
+
+**Device performance / Office Kit.** Honest gap: this build does not
+currently use vivo's Office Kit APIs, it's a browser-based web app plus an
+MCP server. Flagging this directly rather than implying otherwise.
+
+**Supporting links.** This repo, plus the live deployment linked below.
+
+---
+
+Relay is a "baton handoff" memory pattern: instead of an AI agent overwriting
+its own state every time something changes, each new fact is appended as a
+new row that points back at the fact before it. The full history stays
+intact and inspectable — you can always walk the chain backward to see
+exactly how the current state was reached.
 
 ## How the baton pattern works
 
@@ -42,10 +98,8 @@ This is intentionally minimal: SQLite, no auth, no migrations, no validation
 beyond what FastAPI/Pydantic give you for free, one local LLM call per fact.
 It exists to prove the mechanic works end-to-end, not to be production-ready.
 
-**This is a rudimentary backend prototype built ahead of the iQOO Hackathon
-(Pune, Sept 5–6) to validate the core memory mechanic. The full phone-first
-dashboard UI, built on top of this API using the installed design skills,
-will be developed live during the 30-hour event.**
+Built for the iQOO Hackathon 2026. The dashboard, MCP server, and live
+deployment below are all real and already working, not planned.
 
 ## Live link
 
@@ -64,11 +118,9 @@ a phone, one view visible at a time (Chat / Memory) behind a bottom tab bar,
 the way a native app works, not panels stacked into one long scroll. Desktop
 is a `min-width: 760px` enhancement layered on top that switches to both
 panels side by side and hides the tab bar, the same HTML, CSS, and JS serve
-both, no separate mobile build. This matters beyond just this pre-event
-prototype: the actual hackathon deliverable is a phone-first dashboard built
-live during the 30-hour event, so this page is meant to already be a working
-example of the pattern to repeat, not something to redo from scratch on the
-day.
+both, no separate mobile build. This was deliberate, not a default: the
+phone is the primary surface this was designed for, desktop is the addition
+layered on top of it, not the other way round.
 
 No folder picker to navigate first: each visitor gets one ongoing session,
 assigned automatically and remembered in their browser's `localStorage`
@@ -373,29 +425,38 @@ The response's `saved_fact` will be non-null for a decision like that one,
 and `null` for something like `{"message": "hey how are you"}` — same
 behavior visible on the chat page.
 
-## Design skills installed for the dashboard phase
+## Architecture
 
-The full dashboard UI is **not** part of this prototype — it will be built
-live during the 30-hour iQOO Hackathon on top of this API. Ahead of that, the
-following design skills were installed so they're ready to use during the
-event:
+```mermaid
+flowchart LR
+    subgraph clients["AI tools (MCP clients)"]
+        Claude
+        Cursor["Cursor (any MCP client)"]
+    end
 
-- **[`taste-skill`](https://github.com/Leonxlnx/taste-skill)** — installed
-  via `npx skills add`, brought in a family of design-taste skills
-  (`design-taste-frontend`, `stitch-design-taste`, `minimalist-ui`,
-  `high-end-visual-design`, `redesign-existing-projects`, etc.) under
-  `.agents/skills/`.
-- **[`vercel-labs/agent-skills`](https://github.com/vercel-labs/agent-skills)**
-  — installed via `npx skills add`, includes `web-design-guidelines` (UI
-  review against Vercel's Web Interface Guidelines) plus Vercel-specific
-  skills for React, deployment, and composition patterns.
-- **[`VoltAgent/awesome-design-md`](https://github.com/VoltAgent/awesome-design-md)**
-  — this repo is a curated index of externally-hosted `DESIGN.md` files
-  rather than a packaged skill, so `npx skills add` found nothing installable
-  in it. Per the fallback plan, the repo was cloned and a local
-  `awesome-design-md` skill was hand-written into `.agents/skills/` capturing
-  the DESIGN.md convention (drop a brand's design-token doc into the project
-  root, build the UI against it) so the pattern is available during the
-  hackathon.
+    subgraph web["Browser"]
+        Dashboard["Web dashboard\n(chat + memory viewer)"]
+    end
 
-All three are verified present under `.agents/skills/` in the project root.
+    Claude -->|"relay_add_fact\nrelay_get_chain"| MCP["MCP server\n(mcp_server.py)"]
+    Cursor -->|"relay_add_fact\nrelay_get_chain"| MCP
+    Dashboard -->|"POST /chat, /fact\nGET /chain"| API["HTTP API\n(FastAPI, main.py)"]
+
+    MCP --> Core["core.py\nappend_fact / get_chain"]
+    API --> Core
+
+    Core --> LLM["LLM extraction\nOllama (local) or\nOpenRouter/Groq (hosted)"]
+    Core --> DB[("SQLite\nbaton chain,\nnever overwritten")]
+
+    LLM --> DB
+```
+
+Both entry points, the MCP server an AI tool calls, and the HTTP API the
+dashboard calls, run through the exact same `core.py` functions and write to
+the same database. Nothing about the memory logic changes depending on which
+one is used.
+
+Every write goes through one shared step: raw text into the configured LLM
+(local Ollama by default, a hosted model when deployed), which returns a
+short extracted fact. That fact is inserted as a new row, linked to the
+existing fact it updates rather than replacing it.
