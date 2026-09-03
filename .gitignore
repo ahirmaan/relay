@@ -1,0 +1,7 @@
+.agents/
+.claude/
+skills-lock.json
+node_modules/
+__pycache__/
+*.pyc
+.env
