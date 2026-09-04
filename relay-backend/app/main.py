@@ -2,7 +2,7 @@
 
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
@@ -25,7 +25,30 @@ class FactIn(BaseModel):
 
 class ChatIn(BaseModel):
     message: str
-    session_id: str
+    folder: str = "general"
+
+
+def client_ip(request: Request) -> str:
+    """Best-effort real client IP. Behind Vercel (and most proxies/hosts)
+    the actual visitor address is in X-Forwarded-For, not request.client,
+    which would otherwise just be the proxy's own address."""
+    forwarded = request.headers.get("x-forwarded-for")
+    if forwarded:
+        return forwarded.split(",")[0].strip()
+    return request.client.host if request.client else "unknown"
+
+
+def scoped_session(ip: str, folder: str) -> str:
+    """The dashboard's actual session_id: an IP address plus a folder name
+    the visitor picks, e.g. "1.2.3.4::pomodoro-app". Scoping by IP (instead
+    of the old browser-localStorage random id) means the same visitor sees
+    the same memory across a page refresh or a different browser, as long
+    as they're on the same network — the tradeoff is that a shared network
+    (an office, a shared hotspot) shares one identity too. Folder is just a
+    namespace under that IP, same idea as the old per-category sub-sessions,
+    generalized to any name the visitor wants, not a fixed category list.
+    """
+    return f"{ip}::{folder or 'general'}"
 
 
 @app.get("/")
@@ -35,19 +58,44 @@ def root():
 
 
 @app.post("/chat")
-def chat(payload: ChatIn):
+def chat(payload: ChatIn, request: Request):
     """Chat turn where the assistant — not the caller — decides what's worth
-    saving, and how many atomic facts (if any) that turns into. Contrast with
-    POST /fact, where the caller explicitly hands over text to extract.
+    saving, and how many atomic facts (if any) that turns into. Session
+    identity is the caller's IP plus the folder they picked, not something
+    the client can spoof by sending an arbitrary session_id. Contrast with
+    POST /fact, where the caller explicitly hands over text and a raw
+    session_id to extract into (used by the MCP server, not the dashboard).
     """
+    session_id = scoped_session(client_ip(request), payload.folder)
     reply, facts = chat_turn(payload.message)
-    saved = append_facts(facts, payload.session_id, "assistant") if facts else []
-    return {"reply": reply, "saved_facts": saved}
+    saved = append_facts(facts, session_id, "assistant") if facts else []
+    return {"reply": reply, "saved_facts": saved, "folder": payload.folder or "general"}
+
+
+@app.get("/my-folders")
+def my_folders(request: Request):
+    """List this visitor's own folders (by IP), most recently active first —
+    unlike GET /folders, this never shows another visitor's folder names."""
+    prefix = client_ip(request) + "::"
+    return [
+        {**f, "folder": f["session_id"][len(prefix):]}
+        for f in list_folders()
+        if f["session_id"].startswith(prefix)
+    ]
+
+
+@app.get("/my-memory/{folder}")
+def my_memory(folder: str, request: Request):
+    """This visitor's chain for one of their own folders, by IP + folder
+    name — the dashboard's read path, mirroring POST /chat's write path."""
+    return get_chain(scoped_session(client_ip(request), folder))
 
 
 @app.get("/folders")
 def folders():
-    """List existing folders (sessions), most recently active first, for the sidebar."""
+    """List every folder (session) across every visitor, most recently
+    active first. Not used by the dashboard (see /my-folders); kept for
+    direct inspection while testing, e.g. via /docs or curl."""
     return list_folders()
 
 

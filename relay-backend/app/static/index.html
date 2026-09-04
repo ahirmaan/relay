@@ -59,7 +59,17 @@
   #main { flex-direction: column; min-width: 0; min-height: 0; }
   #header { padding: 1rem 1.1rem 0.9rem; border-bottom: 1px solid var(--border); background: var(--surface); }
   #header .title { font-family: var(--serif); font-size: 1.4rem; font-weight: 500; letter-spacing: -0.02em; margin-bottom: 0.2rem; }
-  #header .sub { font-weight: 400; color: var(--ink-soft); font-size: 0.78rem; line-height: 1.5; }
+  #header .sub { font-weight: 400; color: var(--ink-soft); font-size: 0.78rem; line-height: 1.5; margin-bottom: 0.7rem; }
+
+  .folder-bar { display: flex; gap: 0.35rem; overflow-x: auto; padding-bottom: 0.15rem; }
+  .folder-bar::-webkit-scrollbar { display: none; }
+  .folder-bar button {
+    flex-shrink: 0; font-family: var(--sans); font-size: 0.72rem; font-weight: 500;
+    padding: 0.32rem 0.65rem; border-radius: 999px; border: 1px solid var(--border);
+    background: var(--surface); color: var(--ink-soft); cursor: pointer; white-space: nowrap;
+  }
+  .folder-bar button.active { background: var(--ink); border-color: var(--ink); color: #fff; }
+  .folder-bar button.add { color: var(--ink); border-style: dashed; }
 
   #chat { flex: 1; overflow-y: auto; padding: 1.1rem; display: flex; flex-direction: column; gap: 0.7rem; min-height: 0; }
   .bubble { max-width: 86%; padding: 0.65rem 0.9rem; border-radius: 10px; font-size: 0.92rem; line-height: 1.55; }
@@ -151,6 +161,7 @@
   <div id="header">
     <div class="title">Relay</div>
     <div class="sub">Chat normally. The assistant decides on its own what's worth remembering.</div>
+    <div class="folder-bar" id="folder-bar-chat"></div>
   </div>
   <div id="chat">
     <div id="empty-state">
@@ -170,27 +181,67 @@
 <div id="memory-panel">
   <h2>Memory</h2>
   <div class="sub">What the assistant chose to save, oldest to newest.</div>
+  <div class="folder-bar" id="folder-bar-memory" style="margin-bottom: 1rem;"></div>
   <div id="memory-list">(loading&hellip;)</div>
 </div>
 
 <script>
-// One ongoing conversation per visitor, persisted via their browser rather
-// than a folder they have to create or pick. The backend concept is still a
-// session_id (see app/core.py), it's just not something the UI makes you
-// manage. No categories, no walkthrough — one chat, one memory chain.
-let currentSession = null;
+// Identity is now the visitor's IP address, decided server-side (see
+// client_ip() in app/main.py) — not a random id generated in the browser,
+// so a page refresh or a different browser on the same network still sees
+// the same memory instead of starting over. Folder is just a namespace
+// under that IP, picked here in the UI and sent with every request; the
+// server does the actual IP + folder -> session_id scoping, this file never
+// sees or needs the real IP itself.
+let currentFolder = 'general';
 
-function getOrCreateSession() {
-  try {
-    let id = localStorage.getItem('relay_session');
-    if (!id) {
-      id = 'visitor-' + Math.random().toString(36).slice(2, 8);
-      localStorage.setItem('relay_session', id);
-    }
-    return id;
-  } catch (e) {
-    return 'visitor-' + Math.random().toString(36).slice(2, 8); // storage blocked — still works, just not remembered next visit
-  }
+function getStoredFolder() {
+  try { return localStorage.getItem('relay_folder') || 'general'; }
+  catch (e) { return 'general'; }
+}
+function storeFolder(name) {
+  try { localStorage.setItem('relay_folder', name); } catch (e) {}
+}
+
+async function loadFolders() {
+  const res = await fetch('/my-folders');
+  const folders = await res.json();
+  const names = folders.map(f => f.folder);
+  if (!names.includes(currentFolder)) names.unshift(currentFolder); // always show the active one, even brand new
+  renderFolderBar('folder-bar-chat', names);
+  renderFolderBar('folder-bar-memory', names);
+}
+
+function renderFolderBar(containerId, names) {
+  const el = document.getElementById(containerId);
+  if (!el) return;
+  el.innerHTML = names.map(name =>
+    `<button class="${name === currentFolder ? 'active' : ''}" data-folder="${name}">${name}</button>`
+  ).join('') + `<button class="add" data-add>+ Folder</button>`;
+
+  el.querySelectorAll('button[data-folder]').forEach(btn => {
+    btn.addEventListener('click', () => switchFolder(btn.dataset.folder));
+  });
+  const addBtn = el.querySelector('[data-add]');
+  if (addBtn) addBtn.addEventListener('click', createFolder);
+}
+
+function switchFolder(name) {
+  if (name === currentFolder) return;
+  currentFolder = name;
+  storeFolder(name);
+  document.getElementById('chat').innerHTML = `<div id="empty-state">
+    <div class="glyph">Relay</div>
+    <div class="hint">Say something worth remembering, or just say hello. Relay decides what stays.</div>
+  </div>`; // switching folders starts a fresh chat view — the memory itself is untouched, just which folder's conversation is on screen
+  loadFolders();
+  loadMemory();
+}
+
+function createFolder() {
+  const name = (prompt('Name this folder (e.g. "pomodoro-app"):') || '').trim();
+  if (!name) return;
+  switchFolder(name);
 }
 
 function showView(name) {
@@ -250,7 +301,7 @@ function renderMemory(facts) {
 }
 
 async function loadMemory() {
-  const res = await fetch(`/chain/${encodeURIComponent(currentSession)}`);
+  const res = await fetch(`/my-memory/${encodeURIComponent(currentFolder)}`);
   renderMemory(await res.json());
 }
 
@@ -270,21 +321,20 @@ async function send() {
     const res = await fetch('/chat', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ message, session_id: currentSession })
+      body: JSON.stringify({ message, folder: currentFolder })
     });
     if (!res.ok) throw new Error(await res.text());
     const data = await res.json();
     bubble('assistant', data.reply);
     if (data.saved_facts && data.saved_facts.length) {
-      // one bubble per atomic fact — a single message can yield several
-      for (const f of data.saved_facts) {
-        bubble('memory', `saved (${f.category}): ` + f.content);
-      }
+      // one consolidated bubble, not one per fact — the Memory tab is
+      // where the actual detail lives, this is just a signal it happened
+      const n = data.saved_facts.length;
+      bubble('memory', `Saved ${n} ${n === 1 ? 'fact' : 'facts'} to memory — check the Memory tab.`);
       await loadMemory();
+      loadFolders(); // fact counts may have changed
       status.className = 'saved';
-      status.textContent = data.saved_facts.length === 1
-        ? 'saved 1 fact to Relay memory'
-        : `saved ${data.saved_facts.length} facts to Relay memory`;
+      status.textContent = n === 1 ? 'saved 1 fact to Relay memory' : `saved ${n} facts to Relay memory`;
     } else {
       status.className = '';
       status.textContent = "Relay decided there was nothing worth saving in that message";
@@ -303,16 +353,13 @@ document.getElementById('message').addEventListener('keydown', (e) => {
 });
 
 (async function init() {
-  // ?session=name overrides the remembered one, for demoing/testing a
-  // specific chain without touching localStorage's normal auto-assignment.
+  // ?folder=name overrides the remembered one, for jumping straight to a
+  // specific folder without clicking through the switcher.
   const params = new URLSearchParams(location.search);
-  const requested = params.get('session');
-  if (requested) {
-    currentSession = requested;
-    try { localStorage.setItem('relay_session', requested); } catch (e) {}
-  } else {
-    currentSession = getOrCreateSession();
-  }
+  const requested = params.get('folder');
+  currentFolder = requested || getStoredFolder();
+  storeFolder(currentFolder);
+  await loadFolders();
   await loadMemory();
 })();
 </script>

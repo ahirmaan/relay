@@ -35,7 +35,16 @@ Rules:
 - Split distinct details into separate lines instead of merging them into one sentence — e.g. the project's name, its type, and each of its features are separate lines, not one run-on line.
 - Ignore any part of the input that's just an instruction to save/remember/note something (e.g. "could you save this") — that's a request about what to do with the facts, not a fact itself.
 - Don't confuse the name of the memory tool being addressed (e.g. "save this to Relay") with the actual subject being described.
+- Never output a line that just quotes or restates the whole raw input back — every line must be one specific, distilled detail, not the input itself.
 - If there is no clear fact anywhere in the input, output exactly: NONE
+
+Example:
+Input: "I'm building a thing called Hello, it's a Pomodoro timer, and it can pause and skip sessions"
+Facts:
+name: Hello
+type: Pomodoro timer
+feature: can pause a session
+feature: can skip a session
 
 Input:
 \"\"\"{text}\"\"\"
@@ -141,7 +150,16 @@ def _complete(prompt: str) -> str:
     return _extract_via_ollama(prompt)
 
 
-def _parse_facts(raw: str) -> list[tuple[str, str]]:
+# Categories the model sometimes emits when it echoes the raw input back as
+# a "fact" instead of distilling it (seen in practice: "input: \"\"\"...\"\"\"").
+# Blocked outright rather than just asked not to in the prompt — a prompt
+# instruction reduces how often this happens, it doesn't guarantee it never
+# does, and a fact that's just the whole raw message restated is worse than
+# no fact at all.
+_META_CATEGORIES = frozenset({"input", "raw", "raw input", "message", "original", "text"})
+
+
+def _parse_facts(raw: str, original_text: str = "") -> list[tuple[str, str]]:
     """Parse EXTRACTION_PROMPT's "category: content" lines into pairs, tolerant
     of minor formatting drift (a stray leading "-" or "*" bullet, blank lines,
     extra whitespace) since even an 8B model doesn't follow a format exactly
@@ -150,6 +168,7 @@ def _parse_facts(raw: str) -> list[tuple[str, str]]:
     raw = raw.strip()
     if not raw or raw.upper().startswith("NONE"):
         return []
+    original_normalized = original_text.strip().strip('"').strip().lower()
     facts = []
     for line in raw.splitlines():
         line = line.strip().lstrip("-*•").strip()
@@ -157,9 +176,15 @@ def _parse_facts(raw: str) -> list[tuple[str, str]]:
             continue
         category, content = line.split(":", 1)
         category = category.strip().lower()
-        content = content.strip()
-        if category and content:
-            facts.append((category, content))
+        content = content.strip().strip('"').strip()
+        if not category or not content:
+            continue
+        if category in _META_CATEGORIES:
+            continue
+        # a fact that's just the whole input restated verbatim isn't atomic
+        if original_normalized and content.lower() == original_normalized:
+            continue
+        facts.append((category, content))
     return facts
 
 
@@ -168,7 +193,7 @@ def extract_facts(text: str) -> list[tuple[str, str]]:
     atomic (category, content) facts it contains — possibly more than one,
     possibly none.
     """
-    return _parse_facts(_complete(EXTRACTION_PROMPT.format(text=text)))
+    return _parse_facts(_complete(EXTRACTION_PROMPT.format(text=text)), original_text=text)
 
 
 def chat_turn(message: str) -> tuple[str, list[tuple[str, str]]]:
