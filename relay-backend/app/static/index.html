@@ -56,6 +56,37 @@
   body[data-view="chat"] #main { display: flex; }
   body[data-view="memory"] #memory-panel { display: flex; }
 
+  /* first-visit onboarding, shown once (see relay_onboarded in localStorage) */
+  #onboarding {
+    position: fixed; inset: 0; background: rgba(23,24,28,0.4); z-index: 50;
+    display: flex; align-items: flex-end; justify-content: center;
+  }
+  #onboarding[hidden] { display: none; }
+  #onboarding .card {
+    background: var(--surface); border-radius: 14px 14px 0 0; width: 100%; max-width: 420px;
+    padding: 1.4rem 1.3rem 1.6rem; box-shadow: 0 -4px 24px rgba(0,0,0,0.08);
+  }
+  #onboarding .step-glyph { font-family: var(--serif); font-size: 1rem; color: var(--ink-soft); margin-bottom: 0.3rem; }
+  #onboarding h3 { font-family: var(--serif); font-weight: 500; font-size: 1.25rem; margin: 0 0 0.5rem; letter-spacing: -0.01em; }
+  #onboarding p { font-size: 0.88rem; color: var(--ink-soft); line-height: 1.55; margin: 0 0 1.3rem; }
+  #onboarding .actions { display: flex; align-items: center; justify-content: space-between; }
+  #onboarding .dots { display: flex; gap: 0.3rem; }
+  #onboarding .dots span { width: 6px; height: 6px; border-radius: 50%; background: var(--border); }
+  #onboarding .dots span.active { background: var(--ink); }
+  #onboarding button.next {
+    font-size: 0.82rem; font-weight: 600; padding: 0.55rem 1.1rem; border-radius: 8px; border: none;
+    background: var(--accent); color: #fff; cursor: pointer; font-family: var(--sans);
+  }
+  #onboarding button.skip {
+    font-size: 0.78rem; color: var(--ink-soft); background: none; border: none; cursor: pointer;
+    font-family: var(--sans); padding: 0.5rem;
+  }
+
+  @media (min-width: 760px) {
+    #onboarding { align-items: center; }
+    #onboarding .card { border-radius: 14px; }
+  }
+
   #main { flex-direction: column; min-width: 0; min-height: 0; }
   #header { padding: 1rem 1.1rem 0.9rem; border-bottom: 1px solid var(--border); background: var(--surface); }
   #header .title { font-family: var(--serif); font-size: 1.4rem; font-weight: 500; letter-spacing: -0.02em; margin-bottom: 0.2rem; }
@@ -152,6 +183,21 @@
 </head>
 <body data-view="chat">
 
+<div id="onboarding" hidden>
+  <div class="card">
+    <div class="step-glyph">Relay</div>
+    <h3 id="onboarding-title"></h3>
+    <p id="onboarding-body"></p>
+    <div class="actions">
+      <div class="dots" id="onboarding-dots"></div>
+      <div>
+        <button class="skip" id="onboarding-skip">Skip</button>
+        <button class="next" id="onboarding-next">Next</button>
+      </div>
+    </div>
+  </div>
+</div>
+
 <div id="tabbar">
   <button data-view="chat" class="active">Chat</button>
   <button data-view="memory">Memory</button>
@@ -243,6 +289,61 @@ function createFolder() {
   if (!name) return;
   switchFolder(name);
 }
+
+// First-visit onboarding, shown once — explains the two things people keep
+// getting confused by without it: that Relay decides what to save on its
+// own (not a form), and that saved facts live in a folder they can switch
+// or create, separate from the chat itself.
+const ONBOARDING_STEPS = [
+  {
+    title: 'Chat like normal.',
+    body: "Talk to Relay the way you'd talk to any AI. There's no form to fill out, it's a real conversation.",
+  },
+  {
+    title: 'It decides what to keep.',
+    body: 'Relay reads what you say and saves the useful parts on its own, a name, a decision, a feature. Small talk stays small talk, nothing gets saved from it.',
+  },
+  {
+    title: 'Everything lands in a folder.',
+    body: `You're in "${currentFolder}" right now. Saved facts live there, grouped and linked, nothing ever gets overwritten. Use "+ Folder" any time you want a separate folder for a different project.`,
+  },
+];
+let onboardingStep = 0;
+
+function renderOnboardingStep() {
+  const step = ONBOARDING_STEPS[onboardingStep];
+  document.getElementById('onboarding-title').textContent = step.title;
+  document.getElementById('onboarding-body').textContent = step.body;
+  document.getElementById('onboarding-dots').innerHTML = ONBOARDING_STEPS.map((_, i) =>
+    `<span class="${i === onboardingStep ? 'active' : ''}"></span>`
+  ).join('');
+  document.getElementById('onboarding-next').textContent =
+    onboardingStep === ONBOARDING_STEPS.length - 1 ? 'Got it' : 'Next';
+}
+
+function dismissOnboarding() {
+  document.getElementById('onboarding').hidden = true;
+  try { localStorage.setItem('relay_onboarded', '1'); } catch (e) {}
+}
+
+function maybeShowOnboarding() {
+  let seen = false;
+  try { seen = localStorage.getItem('relay_onboarded') === '1'; } catch (e) {}
+  if (seen) return;
+  onboardingStep = 0;
+  renderOnboardingStep();
+  document.getElementById('onboarding').hidden = false;
+}
+
+document.getElementById('onboarding-next').addEventListener('click', () => {
+  if (onboardingStep < ONBOARDING_STEPS.length - 1) {
+    onboardingStep += 1;
+    renderOnboardingStep();
+  } else {
+    dismissOnboarding();
+  }
+});
+document.getElementById('onboarding-skip').addEventListener('click', dismissOnboarding);
 
 function showView(name) {
   document.body.dataset.view = name;
@@ -361,6 +462,7 @@ document.getElementById('message').addEventListener('keydown', (e) => {
   storeFolder(currentFolder);
   await loadFolders();
   await loadMemory();
+  maybeShowOnboarding();
 })();
 </script>
 

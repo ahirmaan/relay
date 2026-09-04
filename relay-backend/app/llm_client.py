@@ -36,6 +36,7 @@ Rules:
 - Ignore any part of the input that's just an instruction to save/remember/note something (e.g. "could you save this") — that's a request about what to do with the facts, not a fact itself.
 - Don't confuse the name of the memory tool being addressed (e.g. "save this to Relay") with the actual subject being described.
 - Never output a line that just quotes or restates the whole raw input back — every line must be one specific, distilled detail, not the input itself.
+- A plain question asked BY the user (e.g. "what's the market size of X?", "how does Y work?") contains no fact by itself, output NONE for it — asking about a topic is not a fact about that topic, and you must never invent an answer, a statistic, or a line like "X is unknown" just because a question was asked. Only extract from a question if it directly states or reveals a real detail on its own (e.g. "why did we pick SQLite over Postgres for this" reveals a decision even though it's phrased as a question).
 - If there is no clear fact anywhere in the input, output exactly: NONE. This includes greetings and small talk with nothing specific in them ("hey, how's it going?", "thanks!") — don't invent a fact to avoid saying NONE.
 
 Input:
@@ -137,6 +138,23 @@ def _complete(prompt: str, temperature: float = 0.2) -> str:
 # no fact at all.
 _META_CATEGORIES = frozenset({"input", "raw", "raw input", "message", "original", "text"})
 
+# Two more shapes of the same underlying problem (inventing an "answer" to a
+# question that stated no real fact), each caught directly in testing:
+# a bare non-answer as the entire content, and the model leaking its own
+# reasoning about why it thinks a non-answer counts. The prompt already says
+# not to do either — these exist because it still sometimes did, and a
+# fabricated "fact" slipping past a wording fix is worse than a stricter
+# filter occasionally dropping something borderline.
+_NON_ANSWERS = frozenset({
+    "unknown", "n/a", "na", "not specified", "unspecified", "unclear",
+    "not available", "tbd", "not sure", "no information", "not provided",
+})
+_REASONING_LEAK_PHRASES = (
+    "the only fact", "can be extracted", "the input is a question",
+    "no fact", "no clear fact", "as an ai", "i cannot", "i can't determine",
+    "is unknown", "are unknown", "remains unknown", "is not specified", "is unclear",
+)
+
 
 def _parse_facts(raw: str, original_text: str = "") -> list[tuple[str, str]]:
     """Parse EXTRACTION_PROMPT's "category: content" lines into pairs, tolerant
@@ -163,6 +181,11 @@ def _parse_facts(raw: str, original_text: str = "") -> list[tuple[str, str]]:
         # a fact that's just the whole input restated verbatim isn't atomic
         if original_normalized and content.lower() == original_normalized:
             continue
+        content_lower = content.strip(".").lower()
+        if content_lower in _NON_ANSWERS:
+            continue
+        if any(phrase in content_lower for phrase in _REASONING_LEAK_PHRASES):
+            continue
         facts.append((category, content))
     return facts
 
@@ -179,9 +202,22 @@ def extract_facts(text: str) -> list[tuple[str, str]]:
     prompt wording fixes. One retry on an empty result cuts a false "nothing
     here" down to roughly 15-20% instead of accepting a coin-flip as the
     real answer, at the cost of one extra call only in the empty case.
+
+    The retry is skipped for a plain question ("what's the market size of
+    X?"). Also measured directly: a question correctly comes back NONE most
+    of the time, but a retry occasionally hallucinated a fake fact like "the
+    market size is unknown" out of nothing — exactly the "invented answer to
+    a question" failure the prompt already warns against, just reintroduced
+    by giving it a second roll of the dice. A real, save-worthy detail
+    embedded in a question (see the prompt's own example) still gets caught
+    on the first attempt, it doesn't need the retry's help the way genuine
+    missed statements do.
     """
+    stripped = text.strip()
+    is_plain_question = stripped.endswith("?")
+
     facts = _parse_facts(_complete(EXTRACTION_PROMPT.format(text=text)), original_text=text)
-    if not facts:
+    if not facts and not is_plain_question:
         facts = _parse_facts(_complete(EXTRACTION_PROMPT.format(text=text)), original_text=text)
     return facts
 
