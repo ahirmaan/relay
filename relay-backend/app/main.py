@@ -99,6 +99,18 @@ def folders():
     return list_folders()
 
 
+@app.get("/whoami")
+def whoami(request: Request):
+    """Diagnostic: what IP this dashboard currently sees you as, and the raw
+    X-Forwarded-For header it came from. Hit this before and after a refresh
+    — if the ip differs, that's a genuinely different session by design (see
+    scoped_session's docstring), not a bug losing data."""
+    return {
+        "ip": client_ip(request),
+        "x_forwarded_for_raw": request.headers.get("x-forwarded-for"),
+    }
+
+
 @app.get("/info")
 def info():
     return {
