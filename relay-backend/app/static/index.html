@@ -106,10 +106,6 @@
   .bubble { max-width: 86%; padding: 0.65rem 0.9rem; border-radius: 10px; font-size: 0.92rem; line-height: 1.55; }
   .bubble.user { align-self: flex-end; background: var(--ink); color: #fff; border-bottom-right-radius: 3px; }
   .bubble.assistant { align-self: flex-start; background: var(--accent-soft); color: var(--ink); border-bottom-left-radius: 3px; }
-  .bubble.memory {
-    align-self: center; background: var(--mem-bg); color: var(--mem-text); border: 1px solid var(--mem-border);
-    font-size: 0.76rem; font-family: var(--mono); border-radius: 8px; letter-spacing: 0.01em;
-  }
 
   #empty-state { margin: auto; text-align: center; max-width: 320px; padding: 0 1rem; }
   #empty-state .glyph { font-family: var(--serif); font-size: 2.2rem; color: var(--ink); margin-bottom: 0.6rem; }
@@ -148,12 +144,12 @@
   .category-group .category-header .count { font-weight: 400; letter-spacing: 0; text-transform: none; color: #ABAAA5; }
 
   .fact-card { border: 1px solid var(--border); border-radius: 8px; padding: 0.7rem 0.8rem; font-size: 0.83rem; margin-bottom: 0.55rem; background: var(--bg); }
-  .fact-card .meta { color: var(--ink-soft); font-size: 0.68rem; font-family: var(--mono); margin-bottom: 0.3rem; display: flex; align-items: center; gap: 0.35rem; }
+  .fact-card .content { color: var(--ink); line-height: 1.5; }
+  .fact-card .tag-row { margin-top: 0.4rem; }
   .fact-card .link-tag {
     background: var(--mem-bg); color: var(--mem-text); border: 1px solid var(--mem-border);
     border-radius: 5px; padding: 0.08rem 0.35rem; font-size: 0.63rem; letter-spacing: 0.03em;
   }
-  .fact-card .content { color: var(--ink); line-height: 1.5; }
   #memory-empty { color: var(--ink-soft); font-size: 0.85rem; padding: 1rem 0; text-align: center; }
 
   /* ============================================================
@@ -206,8 +202,7 @@
 <div id="main">
   <div id="header">
     <div class="title">Relay</div>
-    <div class="sub">Chat normally. The assistant decides on its own what's worth remembering.</div>
-    <div class="folder-bar" id="folder-bar-chat"></div>
+    <div class="sub">Chat normally. Folder: <span id="folder-label">general</span> — switch it from the Memory tab.</div>
   </div>
   <div id="chat">
     <div id="empty-state">
@@ -254,8 +249,9 @@ async function loadFolders() {
   const folders = await res.json();
   const names = folders.map(f => f.folder);
   if (!names.includes(currentFolder)) names.unshift(currentFolder); // always show the active one, even brand new
-  renderFolderBar('folder-bar-chat', names);
   renderFolderBar('folder-bar-memory', names);
+  const label = document.getElementById('folder-label');
+  if (label) label.textContent = currentFolder;
 }
 
 function renderFolderBar(containerId, names) {
@@ -291,17 +287,18 @@ function createFolder() {
 }
 
 // First-visit onboarding, shown once — explains the two things people keep
-// getting confused by without it: that Relay decides what to save on its
-// own (not a form), and that saved facts live in a folder they can switch
-// or create, separate from the chat itself.
+// getting confused by without it: how to make sure something gets saved
+// (say so directly, rather than hoping the auto-detection catches it), and
+// that saved facts live in a folder they can switch or create, separate
+// from the chat itself.
 const ONBOARDING_STEPS = [
   {
     title: 'Chat like normal.',
     body: "Talk to Relay the way you'd talk to any AI. There's no form to fill out, it's a real conversation.",
   },
   {
-    title: 'It decides what to keep.',
-    body: 'Relay reads what you say and saves the useful parts on its own, a name, a decision, a feature. Small talk stays small talk, nothing gets saved from it.',
+    title: 'Tell it what to save.',
+    body: 'Say "save this" or "remember that" and it\'s saved, guaranteed. Relay also tries to catch important details on its own as you talk, but asking directly is the sure way.',
   },
   {
     title: 'Everything lands in a folder.',
@@ -386,12 +383,16 @@ function renderMemory(facts) {
 
   el.innerHTML = Array.from(groups.entries()).map(([category, items]) => {
     const cards = items.map(f => {
+      // No id numbers or "written_by" shown — not meaningful to a visitor.
+      // The link tag stays: it's the one visible proof of the actual baton
+      // handoff mechanic (this fact updates an earlier one vs starting
+      // fresh), just without exposing the raw id it links to.
       const linkTag = f.parent_fact_id
-        ? `<span class="link-tag">continues #${f.parent_fact_id}</span>`
-        : `<span class="link-tag">new thread</span>`;
+        ? `<span class="link-tag">continues earlier note</span>`
+        : `<span class="link-tag">new</span>`;
       return `<div class="fact-card">
-        <div class="meta">#${f.id} &middot; ${f.written_by} ${linkTag}</div>
         <div class="content">${f.content}</div>
+        <div class="tag-row">${linkTag}</div>
       </div>`;
     }).join('');
     return `<div class="category-group">
@@ -428,10 +429,12 @@ async function send() {
     const data = await res.json();
     bubble('assistant', data.reply);
     if (data.saved_facts && data.saved_facts.length) {
-      // one consolidated bubble, not one per fact — the Memory tab is
-      // where the actual detail lives, this is just a signal it happened
+      // Same bubble style as the assistant's own reply, not a separate
+      // colored notification — reads as part of the conversation, not a
+      // system toast. The Memory tab is where the actual detail lives,
+      // this is just confirmation it happened.
       const n = data.saved_facts.length;
-      bubble('memory', `Saved ${n} ${n === 1 ? 'fact' : 'facts'} to memory — check the Memory tab.`);
+      bubble('assistant', n === 1 ? 'I saved this to Relay.' : `I saved these to Relay.`);
       await loadMemory();
       loadFolders(); // fact counts may have changed
       status.className = 'saved';
