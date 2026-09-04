@@ -244,12 +244,36 @@ function storeFolder(name) {
   try { localStorage.setItem('relay_folder', name); } catch (e) {}
 }
 
+// /my-folders only knows about folders that have at least one saved fact —
+// it finds them by querying the facts table, so a brand-new folder with
+// nothing saved in it yet is invisible to the server. Without this, a
+// visitor who creates a folder, then navigates away before anything gets
+// saved to it, loses the folder entirely from the switcher — indistinguishable
+// from it having been deleted, even though nothing on the server ever held it.
+// This keeps every folder name the visitor has ever switched to on this
+// device, so the pill always stays clickable and they can get back to it,
+// whether or not it has facts in it yet.
+function getKnownFolders() {
+  try { return JSON.parse(localStorage.getItem('relay_known_folders') || '["general"]'); }
+  catch (e) { return ['general']; }
+}
+function rememberFolder(name) {
+  try {
+    const known = getKnownFolders();
+    if (!known.includes(name)) {
+      known.push(name);
+      localStorage.setItem('relay_known_folders', JSON.stringify(known));
+    }
+  } catch (e) {}
+}
+
 async function loadFolders() {
   const res = await fetch('/my-folders');
   const folders = await res.json();
-  const names = folders.map(f => f.folder);
-  if (!names.includes(currentFolder)) names.unshift(currentFolder); // always show the active one, even brand new
-  renderFolderBar('folder-bar-memory', names);
+  const names = new Set(folders.map(f => f.folder));
+  for (const name of getKnownFolders()) names.add(name);
+  names.add(currentFolder); // always show the active one, even brand new
+  renderFolderBar('folder-bar-memory', Array.from(names));
   const label = document.getElementById('folder-label');
   if (label) label.textContent = currentFolder;
 }
@@ -272,6 +296,7 @@ function switchFolder(name) {
   if (name === currentFolder) return;
   currentFolder = name;
   storeFolder(name);
+  rememberFolder(name);
   document.getElementById('chat').innerHTML = `<div id="empty-state">
     <div class="glyph">Relay</div>
     <div class="hint">Say something worth remembering, or just say hello. Relay decides what stays.</div>
@@ -403,8 +428,17 @@ function renderMemory(facts) {
 }
 
 async function loadMemory() {
-  const res = await fetch(`/my-memory/${encodeURIComponent(currentFolder)}`);
-  renderMemory(await res.json());
+  // Guard against an out-of-order response: if the visitor switches folders
+  // quickly, an earlier fetch for the previous folder can resolve AFTER the
+  // new one and overwrite fresh data with stale data — the exact bug behind
+  // "a new folder shows the previous folder's memory". Capture which folder
+  // this request was actually for, and drop the result if currentFolder has
+  // since moved on.
+  const requestedFolder = currentFolder;
+  const res = await fetch(`/my-memory/${encodeURIComponent(requestedFolder)}`);
+  const facts = await res.json();
+  if (requestedFolder !== currentFolder) return;
+  renderMemory(facts);
 }
 
 async function send() {
@@ -463,6 +497,7 @@ document.getElementById('message').addEventListener('keydown', (e) => {
   const requested = params.get('folder');
   currentFolder = requested || getStoredFolder();
   storeFolder(currentFolder);
+  rememberFolder(currentFolder);
   await loadFolders();
   await loadMemory();
   maybeShowOnboarding();
