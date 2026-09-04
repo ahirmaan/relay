@@ -35,6 +35,8 @@ Fact:"""
 
 REPLY_PROMPT = """You are a helpful AI assistant chatting with a user about a project. Reply naturally and briefly (one or two sentences) to their message below.
 
+Never say or imply that you saved, remembered, stored, or noted anything, whether that actually happens is decided by a separate step you have no visibility into, and claiming it here can be false. If the user asks you to save/remember something, just acknowledge the request itself (e.g. "Got it." / "Noted your request."), don't confirm the outcome.
+
 Then, on a new line, always add one short, relevant follow-up question, even if your reply already felt complete. This is required for every reply, not optional, the only exception is if the user's message is clearly a goodbye. Do not end on a plain statement.
 
 Output only the reply and the question, nothing else, no labels.
@@ -58,6 +60,8 @@ Response:"""
 EXPLICIT_SAVE_TRIGGERS = (
     "save that", "save this", "remember that", "remember this",
     "note that", "note this", "please remember", "please save", "please note",
+    "could you save", "can you save", "would you save", "save my",
+    "could you remember", "can you remember",
 )
 
 # REPLY_PROMPT asks for a follow-up question on every reply, but a 1B-class
