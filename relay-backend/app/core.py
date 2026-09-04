@@ -47,31 +47,32 @@ def append_fact(content: str, session_id: str, written_by: str) -> dict:
     """
     conn = get_connection()
     try:
-        rows = conn.execute(
-            "SELECT id, content FROM facts WHERE session_id = ? ORDER BY id DESC",
-            (session_id,),
-        ).fetchall()
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT id, content FROM facts WHERE session_id = %s ORDER BY id DESC",
+                (session_id,),
+            )
+            rows = cur.fetchall()
 
-        new_keywords = _keywords(content)
-        parent_fact_id: Optional[int] = None
-        if new_keywords:
-            for row in rows:
-                if _keywords(row["content"]) & new_keywords:
-                    parent_fact_id = row["id"]
-                    break
+            new_keywords = _keywords(content)
+            parent_fact_id: Optional[int] = None
+            if new_keywords:
+                for row in rows:
+                    if _keywords(row["content"]) & new_keywords:
+                        parent_fact_id = row["id"]
+                        break
 
-        cursor = conn.execute(
-            """
-            INSERT INTO facts (content, written_by, parent_fact_id, session_id)
-            VALUES (?, ?, ?, ?)
-            """,
-            (content, written_by, parent_fact_id, session_id),
-        )
+            cur.execute(
+                """
+                INSERT INTO facts (content, written_by, parent_fact_id, session_id)
+                VALUES (%s, %s, %s, %s)
+                RETURNING *
+                """,
+                (content, written_by, parent_fact_id, session_id),
+            )
+            new_row = cur.fetchone()
         conn.commit()
-        new_id = cursor.lastrowid
-
-        row = conn.execute("SELECT * FROM facts WHERE id = ?", (new_id,)).fetchone()
-        return dict(row)
+        return dict(new_row)
     finally:
         conn.close()
 
@@ -86,10 +87,12 @@ def get_chain(session_id: str) -> list[dict]:
     """Return the full baton chain for a session, oldest to newest."""
     conn = get_connection()
     try:
-        rows = conn.execute(
-            "SELECT * FROM facts WHERE session_id = ? ORDER BY id ASC",
-            (session_id,),
-        ).fetchall()
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT * FROM facts WHERE session_id = %s ORDER BY id ASC",
+                (session_id,),
+            )
+            rows = cur.fetchall()
         return [dict(row) for row in rows]
     finally:
         conn.close()
@@ -99,10 +102,12 @@ def get_latest(session_id: str) -> Optional[dict]:
     """Return the most recent fact for a session, or None if the session is empty."""
     conn = get_connection()
     try:
-        row = conn.execute(
-            "SELECT * FROM facts WHERE session_id = ? ORDER BY id DESC LIMIT 1",
-            (session_id,),
-        ).fetchone()
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT * FROM facts WHERE session_id = %s ORDER BY id DESC LIMIT 1",
+                (session_id,),
+            )
+            row = cur.fetchone()
         return dict(row) if row else None
     finally:
         conn.close()
@@ -117,14 +122,16 @@ def list_folders() -> list[dict]:
     """
     conn = get_connection()
     try:
-        rows = conn.execute(
-            """
-            SELECT session_id, COUNT(*) AS fact_count, MAX(timestamp) AS last_active
-            FROM facts
-            GROUP BY session_id
-            ORDER BY last_active DESC
-            """
-        ).fetchall()
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT session_id, COUNT(*) AS fact_count, MAX(timestamp) AS last_active
+                FROM facts
+                GROUP BY session_id
+                ORDER BY last_active DESC
+                """
+            )
+            rows = cur.fetchall()
         return [dict(row) for row in rows]
     finally:
         conn.close()
@@ -139,8 +146,10 @@ def reset_all() -> int:
     """
     conn = get_connection()
     try:
-        count = conn.execute("SELECT COUNT(*) AS n FROM facts").fetchone()["n"]
-        conn.execute("DELETE FROM facts")
+        with conn.cursor() as cur:
+            cur.execute("SELECT COUNT(*) AS n FROM facts")
+            count = cur.fetchone()["n"]
+            cur.execute("DELETE FROM facts")
         conn.commit()
         return count
     finally:

@@ -4,124 +4,112 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Relay</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,500;1,6..72,400&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
 <style>
   /* ============================================================
      Mobile-first: base rules below target phones. Desktop is an
-     enhancement layered on top via min-width media queries at the
-     bottom, not the other way around. On mobile, one view (Chat /
-     Memory) is visible at a time behind a tab bar, like a native
-     app, not panels stacked into one long scroll.
+     enhancement layered on top via a min-width media query at the
+     bottom. On mobile, one view (Chat / Memory) is visible at a
+     time behind a tab bar, like a native app, not stacked panels.
      ============================================================ */
+
+  :root {
+    --bg: #FBFBFA;
+    --surface: #FFFFFF;
+    --border: #EAEAEA;
+    --ink: #17181C;
+    --ink-soft: #787774;
+    --accent: #17181C;
+    --accent-soft: #F1F0EC;
+    --mem-bg: #EDF3EC;
+    --mem-text: #346538;
+    --mem-border: #D3E4D1;
+    --serif: 'Newsreader', Georgia, serif;
+    --sans: 'Inter', system-ui, -apple-system, 'Segoe UI', sans-serif;
+    --mono: 'SF Mono', 'Consolas', monospace;
+  }
 
   * { box-sizing: border-box; }
   body {
     margin: 0;
-    font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
-    color: #1a1a1a;
-    background: #fafafa;
+    font-family: var(--sans);
+    color: var(--ink);
+    background: var(--bg);
     min-height: 100vh;
     display: flex;
     flex-direction: column;
   }
 
   /* mobile tab bar, switches between Chat and Memory */
-  #tabbar { display: flex; border-bottom: 1px solid #e2e2e2; background: #fff; flex-shrink: 0; }
+  #tabbar { display: flex; border-bottom: 1px solid var(--border); background: var(--surface); flex-shrink: 0; }
   #tabbar button {
-    flex: 1; padding: 0.7rem; font-size: 0.8rem; border: none; background: none;
-    color: #888; cursor: pointer; border-bottom: 2px solid transparent;
+    flex: 1; padding: 0.85rem; font-size: 0.78rem; font-weight: 600; letter-spacing: 0.02em;
+    border: none; background: none; color: var(--ink-soft); cursor: pointer;
+    border-bottom: 2px solid transparent; font-family: var(--sans);
   }
-  #tabbar button.active { color: #2b46d6; border-bottom-color: #2b46d6; font-weight: 600; }
+  #tabbar button.active { color: var(--ink); border-bottom-color: var(--ink); }
 
   /* one view visible at a time on mobile, controlled by body[data-view] */
   #main, #memory-panel { display: none; flex: 1; min-height: 0; }
   body[data-view="chat"] #main { display: flex; }
   body[data-view="memory"] #memory-panel { display: flex; }
 
-  /* main (chat view) — the whole app, no folder sidebar to navigate first */
   #main { flex-direction: column; min-width: 0; min-height: 0; }
-  #header { padding: 0.8rem 1rem; border-bottom: 1px solid #e2e2e2; background: #fff; }
-  #header .title { font-size: 1rem; font-weight: 700; margin-bottom: 0.15rem; }
-  #header .sub { font-weight: 400; color: #888; font-size: 0.75rem; }
+  #header { padding: 1rem 1.1rem 0.9rem; border-bottom: 1px solid var(--border); background: var(--surface); }
+  #header .title { font-family: var(--serif); font-size: 1.4rem; font-weight: 500; letter-spacing: -0.02em; margin-bottom: 0.2rem; }
+  #header .sub { font-weight: 400; color: var(--ink-soft); font-size: 0.78rem; line-height: 1.5; }
 
-  #chat { flex: 1; overflow-y: auto; padding: 1rem; display: flex; flex-direction: column; gap: 0.6rem; min-height: 0; }
-  .bubble { max-width: 88%; padding: 0.55rem 0.8rem; border-radius: 12px; font-size: 0.9rem; line-height: 1.4; }
-  .bubble.user { align-self: flex-end; background: #2b46d6; color: #fff; border-bottom-right-radius: 3px; }
-  .bubble.assistant { align-self: flex-start; background: #eee; color: #1a1a1a; border-bottom-left-radius: 3px; }
+  #chat { flex: 1; overflow-y: auto; padding: 1.1rem; display: flex; flex-direction: column; gap: 0.7rem; min-height: 0; }
+  .bubble { max-width: 86%; padding: 0.65rem 0.9rem; border-radius: 10px; font-size: 0.92rem; line-height: 1.55; }
+  .bubble.user { align-self: flex-end; background: var(--ink); color: #fff; border-bottom-right-radius: 3px; }
+  .bubble.assistant { align-self: flex-start; background: var(--accent-soft); color: var(--ink); border-bottom-left-radius: 3px; }
   .bubble.memory {
-    align-self: center; background: #eafff0; color: #0a7d2c; border: 1px solid #b6ecc4;
-    font-size: 0.78rem; border-radius: 8px;
+    align-self: center; background: var(--mem-bg); color: var(--mem-text); border: 1px solid var(--mem-border);
+    font-size: 0.76rem; font-family: var(--mono); border-radius: 8px; letter-spacing: 0.01em;
   }
-  #empty-state { margin: auto; text-align: center; max-width: 460px; }
-  #empty-state .hint { color: #999; font-size: 0.88rem; margin-bottom: 1rem; }
 
-  #composer { border-top: 1px solid #e2e2e2; background: #fff; padding: 0.65rem 1rem 0.85rem; flex-shrink: 0; }
+  #empty-state { margin: auto; text-align: center; max-width: 320px; padding: 0 1rem; }
+  #empty-state .glyph { font-family: var(--serif); font-size: 2.2rem; color: var(--ink); margin-bottom: 0.6rem; }
+  #empty-state .hint { color: var(--ink-soft); font-size: 0.85rem; line-height: 1.6; }
 
-  /* guided suggestions: pick a category (big, centered cards), then walk
-     through that category's prompts one at a time, each one replacing the
-     last with a fade, ending in a thank-you card. */
-  .suggestions { transition: opacity 0.18s ease; opacity: 1; }
-
-  .suggestions .category-cards {
-    display: flex; gap: 0.6rem; flex-wrap: wrap; justify-content: center;
-  }
-  .suggestions .category-cards button {
-    font-size: 0.95rem; padding: 0.9rem 1.4rem; border-radius: 14px; border: 1px solid #ddd;
-    background: #fff; cursor: pointer; color: #333; min-width: 130px; font-weight: 600;
-  }
-  .suggestions .category-cards button:hover { border-color: #2b46d6; background: #f5f7ff; }
-
-  /* walkthrough: small chips to switch category, mid-script */
-  .suggestions .categories { display: flex; gap: 0.4rem; margin-bottom: 0.6rem; flex-wrap: wrap; justify-content: center; }
-  .suggestions .categories button {
-    font-size: 0.75rem; padding: 0.28rem 0.6rem; border-radius: 999px; border: 1px solid #ddd;
-    background: #f7f7f7; cursor: pointer; color: #555;
-  }
-  .suggestions .categories button.active { background: #2b46d6; border-color: #2b46d6; color: #fff; }
-
-  .suggestions .step-indicator { text-align: center; font-size: 0.72rem; color: #999; margin-bottom: 0.4rem; }
-  .suggestions .prompt-card {
-    display: block; width: 100%; text-align: center; font-size: 0.9rem; padding: 0.9rem 1.1rem;
-    border-radius: 12px; border: 1px solid #ddd; background: #fff; cursor: pointer; color: #333;
-  }
-  .suggestions .prompt-card:hover { border-color: #2b46d6; background: #f5f7ff; }
-
-  .suggestions .done-card {
-    text-align: center; padding: 1rem; border-radius: 12px; background: #eafff0;
-    border: 1px solid #b6ecc4; color: #0a7d2c; font-size: 0.9rem;
-  }
-  .suggestions .done-card button {
-    margin-top: 0.6rem; font-size: 0.78rem; padding: 0.35rem 0.8rem; border-radius: 999px;
-    border: 1px solid #b6ecc4; background: #fff; color: #0a7d2c; cursor: pointer;
-  }
-  #status.saving { color: #2b46d6; }
-  #status.saved { color: #0a7d2c; }
+  #composer { border-top: 1px solid var(--border); background: var(--surface); padding: 0.75rem 1.1rem 1rem; flex-shrink: 0; }
   #input-row { display: flex; gap: 0.5rem; }
-  #message { flex: 1; font-size: 1rem; padding: 0.6rem 0.8rem; border-radius: 8px; border: 1px solid #ddd; }
-  #send {
-    font-size: 0.85rem; padding: 0.6rem 1.1rem; border-radius: 8px; border: none;
-    background: #2b46d6; color: #fff; cursor: pointer;
+  #message {
+    flex: 1; font-size: 0.95rem; padding: 0.65rem 0.85rem; border-radius: 8px; border: 1px solid var(--border);
+    font-family: var(--sans); background: var(--bg); color: var(--ink);
   }
-  #send:disabled { background: #aab3e8; cursor: default; }
-  #status { font-size: 0.75rem; color: #888; margin-top: 0.4rem; min-height: 1em; }
+  #message:focus { outline: none; border-color: #C7C6C1; background: var(--surface); }
+  #send {
+    font-size: 0.85rem; font-weight: 600; padding: 0.65rem 1.15rem; border-radius: 8px; border: none;
+    background: var(--accent); color: #fff; cursor: pointer; font-family: var(--sans);
+    transition: transform 0.15s ease, background 0.15s ease;
+  }
+  #send:hover { background: #333; }
+  #send:active { transform: scale(0.97); }
+  #send:disabled { background: #CFCFCC; cursor: default; transform: none; }
+  #status { font-size: 0.72rem; color: var(--ink-soft); margin-top: 0.5rem; min-height: 1em; }
+  #status.saving { color: #7A6A2E; }
+  #status.saved { color: var(--mem-text); }
 
   /* memory panel */
-  #memory-panel { flex-direction: column; background: #fff; padding: 1rem; overflow-y: auto; }
-  #memory-panel h2 { font-size: 0.85rem; margin: 0 0 0.15rem; }
-  #memory-panel .sub { font-size: 0.72rem; color: #888; margin-bottom: 0.75rem; }
-  #memory-switcher { display: flex; gap: 0.35rem; flex-wrap: wrap; margin-bottom: 0.85rem; }
-  #memory-switcher button {
-    font-size: 0.72rem; padding: 0.28rem 0.55rem; border-radius: 999px; border: 1px solid #ddd;
-    background: #f7f7f7; cursor: pointer; color: #555;
+  #memory-panel { flex-direction: column; background: var(--surface); padding: 1.1rem; overflow-y: auto; }
+  #memory-panel h2 { font-family: var(--serif); font-weight: 500; font-size: 1.1rem; margin: 0 0 0.2rem; letter-spacing: -0.01em; }
+  #memory-panel .sub { font-size: 0.75rem; color: var(--ink-soft); margin-bottom: 1.1rem; line-height: 1.5; }
+
+  .fact-card { border: 1px solid var(--border); border-radius: 8px; padding: 0.7rem 0.8rem; font-size: 0.83rem; margin-bottom: 0.55rem; background: var(--bg); }
+  .fact-card .meta { color: var(--ink-soft); font-size: 0.68rem; font-family: var(--mono); margin-bottom: 0.3rem; display: flex; align-items: center; gap: 0.35rem; }
+  .fact-card .link-tag {
+    background: var(--mem-bg); color: var(--mem-text); border: 1px solid var(--mem-border);
+    border-radius: 5px; padding: 0.08rem 0.35rem; font-size: 0.63rem; letter-spacing: 0.03em;
   }
-  #memory-switcher button.active { background: #2b46d6; border-color: #2b46d6; color: #fff; }
-  .fact-card { border-bottom: 1px solid #eee; padding: 0.5rem 0; font-size: 0.8rem; }
-  .fact-card .meta { color: #999; font-size: 0.68rem; margin-bottom: 0.15rem; }
+  .fact-card .content { color: var(--ink); line-height: 1.5; }
+  #memory-empty { color: var(--ink-soft); font-size: 0.85rem; padding: 1rem 0; text-align: center; }
 
   /* ============================================================
      Desktop enhancement: chat + memory side by side, tab bar gone.
-     Layered ON TOP of the mobile base above, not the default the
-     mobile rules override. No folder sidebar column — one ongoing
-     conversation per visitor, not something to navigate between.
+     Layered ON TOP of the mobile base above, not the default.
      ============================================================ */
   @media (min-width: 760px) {
     body { flex-direction: row; height: 100vh; }
@@ -130,16 +118,17 @@
 
     #memory-panel {
       order: -1; /* visually first (left), regardless of DOM order */
-      flex: 0 0 20%;
+      flex: 0 0 22%;
+      min-width: 260px;
       border-left: none;
-      border-right: 1px solid #e2e2e2;
+      border-right: 1px solid var(--border);
     }
-    #main { flex: 1 1 80%; }
+    #main { flex: 1 1 78%; }
 
-    .bubble { max-width: 70%; }
-    #chat { padding: 1.25rem; }
-    #header { padding: 0.9rem 1.25rem; }
-    #composer { padding: 0.75rem 1.25rem 1rem; }
+    .bubble { max-width: 62%; }
+    #chat { padding: 1.5rem; }
+    #header { padding: 1.1rem 1.5rem; }
+    #composer { padding: 0.85rem 1.5rem 1.1rem; }
   }
 </style>
 </head>
@@ -153,16 +142,15 @@
 <div id="main">
   <div id="header">
     <div class="title">Relay</div>
-    <div class="sub">Chat normally — the assistant decides on its own what's worth remembering, no memory form to fill out.</div>
+    <div class="sub">Chat normally. The assistant decides on its own what's worth remembering.</div>
   </div>
   <div id="chat">
     <div id="empty-state">
-      <div class="hint">Pick a category below and try a prompt, each one is sent to Relay for real.</div>
-      <div class="suggestions-slot"></div>
+      <div class="glyph">Relay</div>
+      <div class="hint">Say something worth remembering, or just say hello. Relay decides what stays.</div>
     </div>
   </div>
   <div id="composer">
-    <div class="suggestions-slot"></div>
     <div id="input-row">
       <input id="message" placeholder="Say something...">
       <button id="send">Send</button>
@@ -172,19 +160,16 @@
 </div>
 
 <div id="memory-panel">
-  <h2 id="memory-title">Memory</h2>
+  <h2>Memory</h2>
   <div class="sub">What the assistant chose to save, oldest to newest.</div>
-  <div id="memory-switcher"></div>
-  <div id="memory-list">(loading...)</div>
+  <div id="memory-list">(loading&hellip;)</div>
 </div>
 
 <script>
 // One ongoing conversation per visitor, persisted via their browser rather
-// than a folder they have to create or pick — the previous sidebar/folder
-// picker was redundant now that the guided walkthrough (see SUGGESTIONS
-// below) lives directly in the chat. The underlying backend concept is
-// still a session_id (same as ever, see app/core.py), it's just no longer
-// something the UI makes you manage.
+// than a folder they have to create or pick. The backend concept is still a
+// session_id (see app/core.py), it's just not something the UI makes you
+// manage. No categories, no walkthrough — one chat, one memory chain.
 let currentSession = null;
 
 function getOrCreateSession() {
@@ -197,163 +182,6 @@ function getOrCreateSession() {
     return id;
   } catch (e) {
     return 'visitor-' + Math.random().toString(36).slice(2, 8); // storage blocked — still works, just not remembered next visit
-  }
-}
-
-// Each category keeps its own separate memory rather than everything piling
-// into one chain — Database facts, Deployment facts, and Dashboard facts
-// don't mix, matching how they're conceptually distinct in the walkthrough.
-// A sub-session per category, under the visitor's own base session, so
-// different visitors still never collide. Freeform typing with no category
-// picked falls back to the visitor's base/general session.
-function activeSession() {
-  return activeCategory ? `${currentSession}::${activeCategory}` : currentSession;
-}
-
-// A guided walkthrough per category: pick one, then step through 3-4
-// prompts one at a time, each sent prompt fades out and is replaced by the
-// next, ending in a thank-you card. Prompts within a category build on each
-// other (e.g. "use SQLite" then "switch SQLite to Postgres") so walking
-// through one visibly demonstrates the topic-linking mechanic (see
-// app/core.py), not just four disconnected one-off examples.
-//
-// forceSave: true means these are pre-vetted decisions, guaranteed saved
-// via /chat's force_save (see app/main.py) rather than left to the model's
-// live judgment, because these exact sentences were measurably flaky on a
-// 1B model. "Just chatting" is the deliberate exception — its whole point
-// is demonstrating that casual messages do NOT get saved, so it goes
-// through the model's real, honest decision every time, same as anything
-// a visitor types themselves.
-const SUGGESTIONS = {
-  'Database': {
-    forceSave: true,
-    steps: [
-      "we decided to use SQLite for the prototype, it's simpler",
-      "actually, let's switch our database from SQLite to PostgreSQL",
-      "we're adding a read replica to handle reporting queries",
-      "let's also set up automatic nightly backups for the database",
-    ],
-  },
-  'Deployment': {
-    forceSave: true,
-    steps: [
-      "we decided to deploy the backend on Railway",
-      "we decided to switch the LLM provider from Groq to OpenRouter",
-      "we added a persistent volume so the database survives redeploys",
-      "we're going to add a health check endpoint for monitoring",
-    ],
-  },
-  'Dashboard': {
-    forceSave: true,
-    steps: [
-      "we decided to make the dashboard mobile-first with a bottom tab bar",
-      "we decided to split the dashboard into three views instead of one long page",
-      "let's add a dark mode toggle to the dashboard",
-      "we're adding a search bar to filter folders quickly",
-    ],
-  },
-  'Just chatting': {
-    forceSave: false,
-    steps: [
-      "hey, how's it going?",
-      "what do you think about this project so far?",
-      "thanks for the help!",
-    ],
-  },
-};
-
-let activeCategory = null; // nothing pre-picked — show the 4 categories first
-
-// Progress is tracked per category, not as one global step counter — switch
-// from Database (on step 3) to Deployment and back, and Database should
-// still be on step 3, not restarted at step 1. Defaults to 0 (not started)
-// for any category not yet in this map.
-let stepByCategory = {};
-function currentStep() {
-  return stepByCategory[activeCategory] || 0;
-}
-
-function suggestionsHTML() {
-  if (!activeCategory) {
-    const cards = Object.keys(SUGGESTIONS).map(cat =>
-      `<button data-category="${cat}">${cat}</button>`
-    ).join('');
-    return `<div class="suggestions"><div class="category-cards">${cards}</div></div>`;
-  }
-
-  const category = SUGGESTIONS[activeCategory];
-  const step = currentStep();
-  const switcher = Object.keys(SUGGESTIONS).map(cat =>
-    `<button class="${cat === activeCategory ? 'active' : ''}" data-category="${cat}">${cat}</button>`
-  ).join('');
-
-  if (step >= category.steps.length) {
-    return `<div class="suggestions">
-      <div class="categories">${switcher}</div>
-      <div class="done-card">
-        🎉 That's the ${activeCategory} demo, thanks for trying it!
-        <br><button data-restart>Try another category</button>
-      </div>
-    </div>`;
-  }
-
-  const msg = category.steps[step];
-  return `<div class="suggestions">
-    <div class="categories">${switcher}</div>
-    <div class="step-indicator">Step ${step + 1} of ${category.steps.length}</div>
-    <button class="prompt-card" data-msg="${msg}">${msg}</button>
-  </div>`;
-}
-
-function wireSuggestions(container) {
-  container.querySelectorAll('.category-cards button, .categories button').forEach((btn) => {
-    btn.addEventListener('click', () => {
-      activeCategory = btn.dataset.category; // no step reset — resumes wherever this category was left off
-      renderAllSuggestions();
-      loadMemory(); // switching category shows that category's own memory right away, not just after sending
-    });
-  });
-  const restart = container.querySelector('[data-restart]');
-  if (restart) {
-    restart.addEventListener('click', () => {
-      activeCategory = null;
-      renderAllSuggestions();
-      loadMemory(); // back to the general/base memory
-    });
-  }
-  const promptCard = container.querySelector('.prompt-card');
-  if (promptCard) {
-    promptCard.addEventListener('click', () => {
-      send(promptCard.dataset.msg, SUGGESTIONS[activeCategory].forceSave);
-    });
-  }
-}
-
-function renderAllSuggestions(animate) {
-  // Only one slot is ever filled at a time: the big centered one inside
-  // #empty-state while the chat is empty (that's the prominent placement),
-  // falling back to the composer's slot once messages exist and #empty-state
-  // has been removed — the walkthrough still needs somewhere to live for
-  // steps 2, 3, 4 after the conversation has started.
-  const slot = document.querySelector('#empty-state .suggestions-slot')
-    || document.querySelector('#composer .suggestions-slot');
-  if (!slot) return;
-
-  const swap = () => {
-    slot.innerHTML = suggestionsHTML();
-    wireSuggestions(slot);
-    const fresh = slot.querySelector('.suggestions');
-    if (animate && fresh) {
-      fresh.style.opacity = '0';
-      requestAnimationFrame(() => { fresh.style.opacity = '1'; });
-    }
-  };
-  const current = slot.querySelector('.suggestions');
-  if (animate && current) {
-    current.style.opacity = '0';
-    setTimeout(swap, 180); // matches the CSS transition duration
-  } else {
-    swap();
   }
 }
 
@@ -382,67 +210,42 @@ function bubble(kind, text) {
 function renderMemory(facts) {
   const el = document.getElementById('memory-list');
   if (!facts.length) {
-    el.innerHTML = '<div style="color:#aaa;">nothing saved yet</div>';
+    el.innerHTML = '<div id="memory-empty">Nothing saved yet.</div>';
     return;
   }
-  el.innerHTML = facts.map(f =>
-    `<div class="fact-card">
-      <div class="meta">#${f.id} (parent: ${f.parent_fact_id ?? 'none'}) — ${f.written_by} — ${f.timestamp}</div>
-      <div>${f.content}</div>
-    </div>`
-  ).join('');
-}
-
-// Lets a visitor jump straight to any category's memory from the panel
-// itself, not just by switching categories in the chat. Sets the same
-// activeCategory state the chat walkthrough uses, so picking one here also
-// switches which prompts show up if they head back to Chat — one shared
-// state, not two things that could drift out of sync.
-function renderMemorySwitcher() {
-  const el = document.getElementById('memory-switcher');
-  const names = ['General', ...Object.keys(SUGGESTIONS)];
-  el.innerHTML = names.map((name) => {
-    const isActive = name === 'General' ? !activeCategory : name === activeCategory;
-    return `<button class="${isActive ? 'active' : ''}" data-cat="${name}">${name}</button>`;
+  el.innerHTML = facts.map(f => {
+    const linkTag = f.parent_fact_id
+      ? `<span class="link-tag">continues #${f.parent_fact_id}</span>`
+      : `<span class="link-tag">new thread</span>`;
+    return `<div class="fact-card">
+      <div class="meta">#${f.id} &middot; ${f.written_by} ${linkTag}</div>
+      <div class="content">${f.content}</div>
+    </div>`;
   }).join('');
-  el.querySelectorAll('button').forEach((btn) => {
-    btn.addEventListener('click', () => {
-      activeCategory = btn.dataset.cat === 'General' ? null : btn.dataset.cat; // no step reset — resumes wherever this category was left off
-      renderAllSuggestions();
-      loadMemory();
-    });
-  });
 }
 
 async function loadMemory() {
-  document.getElementById('memory-title').textContent = activeCategory ? `${activeCategory} memory` : 'Memory';
-  renderMemorySwitcher();
-  const res = await fetch(`/chain/${encodeURIComponent(activeSession())}`);
+  const res = await fetch(`/chain/${encodeURIComponent(currentSession)}`);
   renderMemory(await res.json());
 }
 
-async function send(presetMessage, forceSaveArg) {
+async function send() {
   const input = document.getElementById('message');
-  const message = (presetMessage ?? input.value).trim();
+  const message = input.value.trim();
   if (!message) return;
   const status = document.getElementById('status');
-  const fromWalkthrough = presetMessage !== undefined && activeCategory !== null;
-  const forceSave = forceSaveArg ?? (presetMessage !== undefined);
 
   bubble('user', message);
   input.value = '';
   status.className = 'saving';
-  status.textContent = 'sending to Relay, deciding whether to save this...';
+  status.textContent = 'sending to Relay, deciding whether to save this…';
   document.getElementById('send').disabled = true;
 
   try {
     const res = await fetch('/chat', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      // force_save only for curated suggestion buttons, and never for "Just
-      // chatting" (see SUGGESTIONS.forceSave) or freeform typing — those
-      // still get the model's live, honest call.
-      body: JSON.stringify({ message, session_id: activeSession(), force_save: forceSave })
+      body: JSON.stringify({ message, session_id: currentSession })
     });
     if (!res.ok) throw new Error(await res.text());
     const data = await res.json();
@@ -456,10 +259,6 @@ async function send(presetMessage, forceSaveArg) {
       status.className = '';
       status.textContent = "Relay decided there was nothing worth saving in that message";
     }
-    if (fromWalkthrough) {
-      stepByCategory[activeCategory] = currentStep() + 1;
-      renderAllSuggestions(true); // fade the sent prompt out, fade the next step in
-    }
   } catch (e) {
     status.className = '';
     status.textContent = 'error: ' + e.message;
@@ -468,11 +267,10 @@ async function send(presetMessage, forceSaveArg) {
   }
 }
 
-document.getElementById('send').addEventListener('click', () => send());
+document.getElementById('send').addEventListener('click', send);
 document.getElementById('message').addEventListener('keydown', (e) => {
   if (e.key === 'Enter') send();
 });
-renderAllSuggestions();
 
 (async function init() {
   // ?session=name overrides the remembered one, for demoing/testing a

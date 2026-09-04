@@ -2,3 +2,6 @@ __pycache__/
 *.pyc
 relay.db
 
+
+.vercel
+.env*
