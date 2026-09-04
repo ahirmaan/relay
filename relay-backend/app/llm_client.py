@@ -30,10 +30,10 @@ Read the input below and output one line per distinct detail, in the form:
 category: content
 
 Rules:
-- category is a short lowercase label for what kind of detail this is (e.g. name, feature, decision, constraint, timeline, architecture, preference). Reuse an obvious category rather than inventing an overly specific one-off label.
+- category is a short lowercase label for what KIND of detail this is, the attribute, not the value — "type", not the specific type. For "the app type is Mobile App": category is "type", content is "Mobile App", never category "mobile app" (that repeats the value as the label, and breaks linking a later change to the same attribute back to this one). Reuse an obvious category rather than inventing an overly specific one-off label (e.g. name, type, feature, decision, constraint, timeline, architecture, preference).
 - content is that single detail, written as a standalone statement (no preamble, no "the user said", no quotes around it).
 - Split distinct details into separate lines instead of merging them into one sentence — e.g. the project's name, its type, and each of its features are separate lines, not one run-on line.
-- Ignore any part of the input that's just an instruction to save/remember/note something (e.g. "could you save this") — that's a request about what to do with the facts, not a fact itself.
+- Ignore any part of the input that's just an instruction to save/remember/note something (e.g. "could you save this") — that's a request about what to do with the facts, not a fact itself. This does NOT apply to "change X to Y" / "update X to Y" / "switch X to Y" / "set X to Y" — that IS the fact itself, a real decision, not a meta-instruction to strip. Extract it directly: category is what changed (reuse the existing category for that thing if there is one, e.g. "type"), content is the new value ("Web App"), nothing more. Never output the literal words "category" or "content" or "decision" as if they were the actual category or content, those are the names of the fields in this format, not values to fill them with.
 - Don't confuse the name of the memory tool being addressed (e.g. "save this to Relay") with the actual subject being described.
 - Never output a line that just quotes or restates the whole raw input back — every line must be one specific, distilled detail, not the input itself.
 - A plain question asked BY the user (e.g. "what's the market size of X?", "how does Y work?") contains no fact by itself, output NONE for it — asking about a topic is not a fact about that topic, and you must never invent an answer, a statistic, or a line like "X is unknown" just because a question was asked. Only extract from a question if it directly states or reveals a real detail on its own (e.g. "why did we pick SQLite over Postgres for this" reveals a decision even though it's phrased as a question).
@@ -63,15 +63,29 @@ User message:
 # rather than kept out of habit. extract_facts()'s own NONE handling plus its
 # retry-once-on-empty is what actually carries this now.
 #
-# Explicit asks to remember something should always be saved, no need to ask
-# the model to judge intent when the user already stated it directly. Checked
-# after extraction — if it still finds nothing from an explicit ask, chat_turn
-# falls back to a single deterministic "note" fact rather than saving nothing.
+# The whole save decision, not just a special case: chat_turn only extracts
+# and saves when a message matches one of these, deterministic and
+# guaranteed rather than left to a model's judgment (see chat_turn's
+# docstring for why auto-detection was cut entirely).
+#
+# Covers two shapes of "explicit": literally saying save/remember/note, and
+# giving a direct instruction to change/set something ("change the app type
+# to Web App") — the second is just as much an explicit ask as the first,
+# it just doesn't use the word "save". Missing this originally made an
+# unambiguous instruction silently save nothing, which also meant there was
+# nothing for a later related fact to link to — looked like a broken baton
+# handoff, but the actual bug was upstream of that, nothing got saved in the
+# first place.
 EXPLICIT_SAVE_TRIGGERS = (
     "save that", "save this", "remember that", "remember this",
     "note that", "note this", "please remember", "please save", "please note",
     "could you save", "can you save", "would you save", "save my",
     "could you remember", "can you remember",
+    "change the", "change it to", "change this to",
+    "update the", "update it to",
+    "switch the", "switch it to",
+    "set the", "set it to",
+    "rename the", "rename it to",
 )
 
 # REPLY_PROMPT asks for a follow-up question on every reply, but a 1B-class
@@ -138,6 +152,18 @@ def _complete(prompt: str, temperature: float = 0.2) -> str:
 # no fact at all.
 _META_CATEGORIES = frozenset({"input", "raw", "raw input", "message", "original", "text"})
 
+# A specific, highly reproducible failure on "change the app type to Web
+# App"-style phrasing: the model echoed this format's own field names back
+# as if they were values — literally "category: decision" as an entire
+# fact, four times out of five in direct testing. Not a rare fluke to shrug
+# off. The prompt now explains this phrasing directly (see EXTRACTION_PROMPT)
+# but that alone doesn't guarantee it stops, so this blocks the exact
+# degenerate shape outright: a category that's the name of a field in this
+# format rather than a real category, or content that's a single generic
+# word carrying no actual information.
+_SCHEMA_LEAK_CATEGORIES = frozenset({"category", "content", "field", "value", "label", "fact"})
+_EMPTY_CONTENT_WORDS = frozenset({"decision", "change", "update", "fact", "value", "detail", "note"})
+
 # Two more shapes of the same underlying problem (inventing an "answer" to a
 # question that stated no real fact), each caught directly in testing:
 # a bare non-answer as the entire content, and the model leaking its own
@@ -185,6 +211,11 @@ def _parse_facts(raw: str, original_text: str = "") -> list[tuple[str, str]]:
         if content_lower in _NON_ANSWERS:
             continue
         if any(phrase in content_lower for phrase in _REASONING_LEAK_PHRASES):
+            continue
+        # The exact "category: decision" degenerate output — the model
+        # naming its own field instead of a real category, or a single
+        # generic word standing in for actual content.
+        if category in _SCHEMA_LEAK_CATEGORIES or content_lower in _EMPTY_CONTENT_WORDS:
             continue
         facts.append((category, content))
     return facts

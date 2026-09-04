@@ -32,6 +32,25 @@ def _keywords(text: str) -> set[str]:
     return {w for w in words if w not in _STOPWORDS}
 
 
+# The model doesn't always reuse the exact same category string for the
+# same attribute — "type" one message, "change type" the next, describing
+# the identical thing. Matching categories exactly missed real links
+# because of wording drift like this, verified directly: "type" vs "change
+# type" silently failed to link two facts about the same app's type. This
+# strips the modifier words that tend to show up on a follow-up change
+# ("change type" -> "type") before comparing, without altering what's
+# actually stored or displayed.
+_CATEGORY_MODIFIERS = frozenset({
+    "change", "changed", "changing", "update", "updated", "updating",
+    "switch", "switched", "switching", "set", "new", "the",
+})
+
+
+def _normalize_category(category: str) -> str:
+    words = [w for w in category.lower().split() if w not in _CATEGORY_MODIFIERS]
+    return " ".join(words) or category.lower()
+
+
 def append_facts(items: list[tuple[str, str]], session_id: str, written_by: str) -> list[dict]:
     """Insert one or more already-decided atomic facts — each a (category,
     content) pair — linked independently, not as one blob. Each fact links
@@ -59,10 +78,14 @@ def append_facts(items: list[tuple[str, str]], session_id: str, written_by: str)
             results = []
             for category, content in items:
                 new_keywords = _keywords(content)
+                normalized_category = _normalize_category(category)
                 parent_fact_id: Optional[int] = None
                 if new_keywords:
                     for row in pool:
-                        if row["category"] == category and (_keywords(row["content"]) & new_keywords):
+                        if (
+                            _normalize_category(row["category"]) == normalized_category
+                            and (_keywords(row["content"]) & new_keywords)
+                        ):
                             parent_fact_id = row["id"]
                             break
 
