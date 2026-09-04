@@ -152,15 +152,17 @@ way to get something saved, and that saved facts live in a folder separate
 from the chat itself.
 
 Just talk normally — the point isn't a form where you manually author
-"facts." Say "save this" or "remember that" and it's saved, guaranteed
-(`EXPLICIT_SAVE_TRIGGERS` in `app/llm_client.py`). Relay also tries to catch
-important details on its own as you chat, mention a decision and it may show
-up under Memory without being asked; casual messages don't get saved either
-way. Every send shows a status line through the round trip ("sending to
-Relay, deciding whether to save this…", then either "saved N facts to Relay
-memory" or "Relay decided there was nothing worth saving"), and a saved
-message shows up in the chat itself, styled the same as the assistant's own
-reply, not a separate colored notification.
+"facts." Nothing is saved unless you explicitly ask: say "save this" or
+"remember that" and it's saved, guaranteed (`EXPLICIT_SAVE_TRIGGERS` in
+`app/llm_client.py`). Auto-detecting "worth remembering" from freeform chat
+was tried and cut — even after every reliability fix below, it still
+produced real false positives (a plain "hello, who are you?" once got saved
+as a fact named "Relay"), and that failure mode is invisible until you
+notice something wrong in Memory later. Asking directly is the deterministic
+fix, same reasoning as `EXPLICIT_SAVE_TRIGGERS` itself, just applied to the
+whole feature. A save shows up in the chat itself ("I saved this to Relay."),
+styled the same as the assistant's own reply, not a separate colored
+notification, plus a status line ("saved N facts to Relay memory").
 
 No account, no setup, works for anyone who has the link.
 
@@ -170,8 +172,12 @@ description.
 ### Extraction reliability
 
 Getting a small model to reliably decide "is there anything worth saving
-here" turned out to be the hardest part of this build, worth documenting
-since it shaped several deliberate choices in `app/llm_client.py`:
+here" turned out to be the hardest part of this build — hard enough that,
+as above, the dashboard no longer asks a model to make that call at all,
+saving only happens on an explicit ask now. `extract_facts()` still uses
+these layers below once that ask happens, though, since even "the user
+already said save this, now break it into atomic facts" turned out to have
+real failure modes worth guarding against deterministically:
 
 - **A separate yes/no gate before extraction was tried and cut.** It failed
   at roughly the same ~40% rate the extraction call itself did on its own,
