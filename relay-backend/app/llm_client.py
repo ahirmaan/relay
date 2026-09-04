@@ -46,7 +46,12 @@ Facts:"""
 
 REPLY_PROMPT = """You are a helpful AI assistant chatting with a user about a project. Reply naturally and briefly (one or two sentences) to their message below.
 
-Never say or imply that you saved, remembered, stored, or noted anything, whether that actually happens is decided by a separate step you have no visibility into, and claiming it here can be false. If the user asks you to save/remember something, just acknowledge the request itself (e.g. "Got it." / "Noted your request."), don't confirm the outcome.
+Here is everything currently saved to memory for this conversation:
+\"\"\"{memory_context}\"\"\"
+
+If the user asks about, or references, something that IS covered in the memory above, answer using it directly and specifically — don't say you don't know something that's right there. If they ask about something that is NOT in the memory above, say plainly that you don't have that saved, do not invent an answer or pretend it's there. Never state a fact as if from memory unless it's actually present in the block above.
+
+Never say or imply that you saved, remembered, stored, or noted anything NEW from this message, whether that happens is decided by a separate step you have no visibility into, and claiming it here can be false. If the user asks you to save/remember something, just acknowledge the request itself (e.g. "Got it." / "Noted your request."), don't confirm the outcome. This is separate from answering using what's already in the memory block above, which you should do directly.
 
 Then, on a new line, always add one short, relevant follow-up question, even if your reply already felt complete. This is required for every reply, not optional, the only exception is if the user's message is clearly a goodbye. Do not end on a plain statement.
 
@@ -253,11 +258,18 @@ def extract_facts(text: str) -> list[tuple[str, str]]:
     return facts
 
 
-def chat_turn(message: str) -> tuple[str, list[tuple[str, str]]]:
+def chat_turn(message: str, memory_context: str = "") -> tuple[str, list[tuple[str, str]]]:
     """Reply to a chat message, and only save something if the user
     explicitly asked to (EXPLICIT_SAVE_TRIGGERS). Returns the reply plus a
     list of (category, content) facts, which is empty unless the message
     contained an explicit ask.
+
+    memory_context is everything already saved for this folder (built by the
+    caller, see app/main.py), so the reply can actually answer "what did I
+    save about X" or "fetch Y from memory" instead of only ever being able
+    to write, never read — a real gap this had until a user asked Relay to
+    "fetch about GTA 6 from memory" and got a generic non-answer, since
+    nothing before this was ever shown to the reply step at all.
 
     Auto-detecting "worth remembering" from freeform chat was tried at
     length (see extract_facts's own docstring for the reliability work that
@@ -269,7 +281,8 @@ def chat_turn(message: str) -> tuple[str, list[tuple[str, str]]]:
     the deterministic fix, the same reasoning behind EXPLICIT_SAVE_TRIGGERS
     itself, just applied to the whole feature instead of one edge case.
     """
-    reply = _complete(REPLY_PROMPT.format(message=message)).strip()
+    context_block = memory_context.strip() or "(nothing saved yet in this folder)"
+    reply = _complete(REPLY_PROMPT.format(message=message, memory_context=context_block)).strip()
 
     is_farewell = any(t in message.lower() for t in FAREWELL_TRIGGERS)
     if "?" not in reply and not is_farewell:

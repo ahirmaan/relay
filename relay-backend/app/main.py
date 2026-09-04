@@ -65,9 +65,16 @@ def chat(payload: ChatIn, request: Request):
     the client can spoof by sending an arbitrary session_id. Contrast with
     POST /fact, where the caller explicitly hands over text and a raw
     session_id to extract into (used by the MCP server, not the dashboard).
+
+    Also fetches this folder's existing chain first and hands it to
+    chat_turn as context, so "what did I save about X" or "fetch Y from
+    memory" can actually be answered — this used to be write-only, the
+    reply had no visibility into anything already saved.
     """
     session_id = scoped_session(client_ip(request), payload.folder)
-    reply, facts = chat_turn(payload.message)
+    existing = get_chain(session_id)
+    memory_context = "\n".join(f"{f['category']}: {f['content']}" for f in existing)
+    reply, facts = chat_turn(payload.message, memory_context=memory_context)
     saved = append_facts(facts, session_id, "assistant") if facts else []
     return {"reply": reply, "saved_facts": saved, "folder": payload.folder or "general"}
 
