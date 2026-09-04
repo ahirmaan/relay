@@ -13,7 +13,7 @@ README) so a connected assistant gets these as real tool calls.
 
 from mcp.server.fastmcp import FastMCP
 
-from app.core import add_fact as _add_fact
+from app.core import add_facts as _add_facts
 from app.core import get_chain as _get_chain
 from app.core import get_latest as _get_latest
 from app.db import init_db
@@ -24,19 +24,22 @@ mcp = FastMCP("relay")
 
 
 @mcp.tool()
-def relay_add_fact(text: str, session_id: str, written_by: str) -> dict:
-    """Extract a fact from raw text and append it to a session's baton chain.
+def relay_add_facts(text: str, session_id: str, written_by: str) -> list[dict]:
+    """Break raw text into atomic facts and append each to a session's chain.
 
-    Runs the input through the configured LLM to distill it into a single
-    durable fact, then links it to the session's current latest fact as its
-    parent — the same append-only handoff the HTTP API performs.
+    Runs the input through the configured LLM to split it into small,
+    self-contained details (e.g. a project's name, type, and each feature as
+    separate facts, not one blob), each linked independently to whichever
+    prior fact in the same category it actually updates — the same
+    append-only handoff the HTTP API performs. Returns an empty list if
+    nothing worth remembering was found, which is a valid outcome.
 
     Args:
-        text: Raw input describing a decision or state change.
-        session_id: Which chain this fact belongs to.
-        written_by: Name of the model/assistant writing this fact.
+        text: Raw input describing one or more decisions or details.
+        session_id: Which chain these facts belong to.
+        written_by: Name of the model/assistant writing them.
     """
-    return _add_fact(text, session_id, written_by)
+    return _add_facts(text, session_id, written_by)
 
 
 @mcp.tool()

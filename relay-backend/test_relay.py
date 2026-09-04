@@ -31,9 +31,11 @@ def main() -> None:
             json={"text": text, "session_id": SESSION_ID, "written_by": "llama3.2:1b"},
         )
         response.raise_for_status()
-        fact = response.json()
-        print(f"[{i}] fact id={fact['id']} parent={fact['parent_fact_id']}")
-        print(f"    {fact['content']}\n")
+        facts = response.json()  # a list now — one input can yield several atomic facts
+        print(f"[{i}] extracted {len(facts)} atomic fact(s):")
+        for fact in facts:
+            print(f"    id={fact['id']} parent={fact['parent_fact_id']} category={fact['category']}")
+            print(f"    {fact['content']}\n")
 
     print("Fetching full chain...\n")
     chain_response = requests.get(f"{BASE_URL}/chain/{SESSION_ID}")

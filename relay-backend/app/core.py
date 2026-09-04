@@ -6,7 +6,7 @@ import re
 from typing import Optional
 
 from app.db import get_connection
-from app.llm_client import extract_fact
+from app.llm_client import extract_facts
 
 # Generic words stripped before comparing facts for a shared topic. Trying an
 # LLM to classify/label topics was tested here and rejected: a 1B-class model
@@ -32,55 +32,66 @@ def _keywords(text: str) -> set[str]:
     return {w for w in words if w not in _STOPWORDS}
 
 
-def append_fact(content: str, session_id: str, written_by: str) -> dict:
-    """Insert an already-decided fact, linked to the most recent fact in this
-    session that shares a keyword with it — not just the session's latest
-    fact overall. A fact about switching database ties back to an earlier
-    fact about that same database; an unrelated fact about a hosting
-    provider starts its own thread (parent_fact_id = None) instead of
-    looking like it grew out of the database decision just because it
-    happened next chronologically.
+def append_facts(items: list[tuple[str, str]], session_id: str, written_by: str) -> list[dict]:
+    """Insert one or more already-decided atomic facts — each a (category,
+    content) pair — linked independently, not as one blob. Each fact links
+    to the most recent existing fact in this session that's in the SAME
+    category and shares a keyword with it, so updating "type" only ever
+    re-links the previous "type" fact, never an unrelated "name" or
+    "feature" fact that happens to sit nearby. Everything else already in
+    that folder stays completely untouched — that's the whole point of the
+    baton handoff, layering onto one specific fact, not the folder as a
+    whole.
 
-    Used when the caller (e.g. the chat flow, where an assistant decides
-    mid-conversation what's worth remembering) already has the fact text and
-    doesn't need a separate extraction pass.
+    Facts inserted earlier in this same call are eligible parents for facts
+    inserted later in it too, so two related atomic facts pulled from one
+    message can still link to each other.
     """
     conn = get_connection()
     try:
         with conn.cursor() as cur:
             cur.execute(
-                "SELECT id, content FROM facts WHERE session_id = %s ORDER BY id DESC",
+                "SELECT id, category, content FROM facts WHERE session_id = %s ORDER BY id DESC",
                 (session_id,),
             )
-            rows = cur.fetchall()
+            pool = list(cur.fetchall())  # newest-first; new rows get prepended below
 
-            new_keywords = _keywords(content)
-            parent_fact_id: Optional[int] = None
-            if new_keywords:
-                for row in rows:
-                    if _keywords(row["content"]) & new_keywords:
-                        parent_fact_id = row["id"]
-                        break
+            results = []
+            for category, content in items:
+                new_keywords = _keywords(content)
+                parent_fact_id: Optional[int] = None
+                if new_keywords:
+                    for row in pool:
+                        if row["category"] == category and (_keywords(row["content"]) & new_keywords):
+                            parent_fact_id = row["id"]
+                            break
 
-            cur.execute(
-                """
-                INSERT INTO facts (content, written_by, parent_fact_id, session_id)
-                VALUES (%s, %s, %s, %s)
-                RETURNING *
-                """,
-                (content, written_by, parent_fact_id, session_id),
-            )
-            new_row = cur.fetchone()
+                cur.execute(
+                    """
+                    INSERT INTO facts (content, written_by, parent_fact_id, session_id, category)
+                    VALUES (%s, %s, %s, %s, %s)
+                    RETURNING *
+                    """,
+                    (content, written_by, parent_fact_id, session_id, category),
+                )
+                new_row = cur.fetchone()
+                results.append(dict(new_row))
+                pool.insert(0, new_row)
         conn.commit()
-        return dict(new_row)
+        return results
     finally:
         conn.close()
 
 
-def add_fact(text: str, session_id: str, written_by: str) -> dict:
-    """Extract a fact from raw text and append it to the session's chain."""
-    content = extract_fact(text)
-    return append_fact(content, session_id, written_by)
+def add_facts(text: str, session_id: str, written_by: str) -> list[dict]:
+    """Extract whatever atomic facts are in raw text and append them to the
+    session's chain. Returns an empty list if the text contained nothing
+    worth remembering — that's a valid, honest outcome, not an error.
+    """
+    items = extract_facts(text)
+    if not items:
+        return []
+    return append_facts(items, session_id, written_by)
 
 
 def get_chain(session_id: str) -> list[dict]:

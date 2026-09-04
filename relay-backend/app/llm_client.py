@@ -24,20 +24,23 @@ OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
 OPENROUTER_MODEL = os.environ.get("OPENROUTER_MODEL", "meta-llama/llama-3.2-1b-instruct")
 OPENROUTER_API_KEY = os.environ.get("OPENROUTER_API_KEY")
 
-EXTRACTION_PROMPT = """You are a memory system that distills raw input into a single durable fact.
+EXTRACTION_PROMPT = """You are a memory system that breaks raw input into atomic facts — small, self-contained details, not one long summary.
 
-Read the input below and summarize the key decision, state, or detail it describes in one or two concise sentences. Write it as a standalone statement of fact (no preamble, no "the user said", no quotes around it).
+Read the input below and output one line per distinct detail, in the form:
+category: content
 
-Two things to ignore when writing the fact:
-- Any part of the input that's just an instruction to save/remember/note something (e.g. "could you save this", "remember this for me") — that's a request about what to do with the fact, not the fact itself.
-- The name of the memory tool being addressed, if it's only mentioned as who to save the information to (e.g. "save this to Relay"). Don't confuse that name with the actual subject being described.
-
-If the input contains no clear decision or state change, summarize its most important takeaway the same way.
+Rules:
+- category is a short lowercase label for what kind of detail this is (e.g. name, feature, decision, constraint, timeline, architecture, preference). Reuse an obvious category rather than inventing an overly specific one-off label.
+- content is that single detail, written as a standalone statement (no preamble, no "the user said", no quotes around it).
+- Split distinct details into separate lines instead of merging them into one sentence — e.g. the project's name, its type, and each of its features are separate lines, not one run-on line.
+- Ignore any part of the input that's just an instruction to save/remember/note something (e.g. "could you save this") — that's a request about what to do with the facts, not a fact itself.
+- Don't confuse the name of the memory tool being addressed (e.g. "save this to Relay") with the actual subject being described.
+- If there is no clear fact anywhere in the input, output exactly: NONE
 
 Input:
 \"\"\"{text}\"\"\"
 
-Fact:"""
+Facts:"""
 
 REPLY_PROMPT = """You are a helpful AI assistant chatting with a user about a project. Reply naturally and briefly (one or two sentences) to their message below.
 
@@ -51,18 +54,11 @@ User message:
 \"\"\"{message}\"\"\"
 """
 
-DECISION_PROMPT = """Read the message below. If it describes or proposes a concrete decision or state change (for example "we chose X over Y", "switched from A to B", "decided to ship Z", "let's use X instead of Y", "going with X for this"), respond with that decision distilled into one standalone sentence. If it is just a question, greeting, or small talk with no decision in it, respond with exactly: NONE
-
-Message:
-\"\"\"{message}\"\"\"
-
-Response:"""
-
 # Explicit asks to remember something should always be saved, no need to ask
-# a small model to judge intent when the user already stated it directly.
-# Checked before the DECISION_PROMPT call, not folded into it, because
-# combining "classify AND handle this special case" into one instruction
-# made small models misfire on ordinary messages (see chat_turn).
+# the model to judge intent when the user already stated it directly. Checked
+# before trusting EXTRACTION_PROMPT's own NONE judgment — if the model still
+# finds nothing to extract from an explicit ask, chat_turn falls back to a
+# single deterministic "note" fact rather than silently saving nothing.
 EXPLICIT_SAVE_TRIGGERS = (
     "save that", "save this", "remember that", "remember this",
     "note that", "note this", "please remember", "please save", "please note",
@@ -127,19 +123,41 @@ def _complete(prompt: str) -> str:
     return _extract_via_ollama(prompt)
 
 
-def extract_fact(text: str) -> str:
-    """Send raw input text to the configured LLM provider and return the extracted fact."""
-    return _complete(EXTRACTION_PROMPT.format(text=text))
+def _parse_facts(raw: str) -> list[tuple[str, str]]:
+    """Parse EXTRACTION_PROMPT's "category: content" lines into pairs, tolerant
+    of minor formatting drift (a stray leading "-" or "*" bullet, blank lines,
+    extra whitespace) since even an 8B model doesn't follow a format exactly
+    every time.
+    """
+    raw = raw.strip()
+    if not raw or raw.upper().startswith("NONE"):
+        return []
+    facts = []
+    for line in raw.splitlines():
+        line = line.strip().lstrip("-*•").strip()
+        if not line or line.upper() == "NONE" or ":" not in line:
+            continue
+        category, content = line.split(":", 1)
+        category = category.strip().lower()
+        content = content.strip()
+        if category and content:
+            facts.append((category, content))
+    return facts
 
 
-def chat_turn(message: str) -> tuple[str, str | None]:
-    """Reply to a chat message, and separately let the model decide whether to
-    save a fact from it — the model does the deciding, not the caller.
+def extract_facts(text: str) -> list[tuple[str, str]]:
+    """Send raw input text to the configured LLM provider and return the
+    atomic (category, content) facts it contains — possibly more than one,
+    possibly none.
+    """
+    return _parse_facts(_complete(EXTRACTION_PROMPT.format(text=text)))
 
-    Two focused completions rather than one compound one: small models (a
-    local 1B, or the cheap hosted models used for the deployed instance)
-    follow a single-purpose instruction far more reliably than a "reply AND
-    classify AND extract, in this exact format" one.
+
+def chat_turn(message: str) -> tuple[str, list[tuple[str, str]]]:
+    """Reply to a chat message, and separately let the model decide what (if
+    anything) is worth saving from it — the model does the deciding, not the
+    caller. Returns the reply plus a list of (category, content) facts, which
+    may be empty.
     """
     reply = _complete(REPLY_PROMPT.format(message=message)).strip()
 
@@ -149,10 +167,11 @@ def chat_turn(message: str) -> tuple[str, str | None]:
             reply += "."
         reply = (reply + " " + FALLBACK_FOLLOWUP).strip()
 
-    if any(trigger in message.lower() for trigger in EXPLICIT_SAVE_TRIGGERS):
-        fact = extract_fact(message)
-    else:
-        decision = _complete(DECISION_PROMPT.format(message=message)).strip()
-        fact = None if decision.upper().startswith("NONE") else decision
+    facts = extract_facts(message)
+    if not facts and any(trigger in message.lower() for trigger in EXPLICIT_SAVE_TRIGGERS):
+        # The user explicitly asked to save something, but the model still
+        # found nothing to extract — don't silently save nothing when the
+        # intent was unambiguous. No second model call, just save the raw ask.
+        facts = [("note", message.strip())]
 
-    return reply, fact
+    return reply, facts

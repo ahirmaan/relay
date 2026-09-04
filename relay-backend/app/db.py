@@ -20,8 +20,10 @@ CREATE TABLE IF NOT EXISTS facts (
     written_by TEXT NOT NULL,
     timestamp TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     parent_fact_id INTEGER REFERENCES facts(id),
-    session_id TEXT NOT NULL
+    session_id TEXT NOT NULL,
+    category TEXT NOT NULL DEFAULT 'general'
 );
+ALTER TABLE facts ADD COLUMN IF NOT EXISTS category TEXT NOT NULL DEFAULT 'general';
 """
 
 

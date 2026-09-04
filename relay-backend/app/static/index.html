@@ -98,6 +98,14 @@
   #memory-panel h2 { font-family: var(--serif); font-weight: 500; font-size: 1.1rem; margin: 0 0 0.2rem; letter-spacing: -0.01em; }
   #memory-panel .sub { font-size: 0.75rem; color: var(--ink-soft); margin-bottom: 1.1rem; line-height: 1.5; }
 
+  .category-group { margin-bottom: 1.1rem; }
+  .category-group .category-header {
+    display: flex; align-items: baseline; gap: 0.4rem; margin-bottom: 0.5rem;
+    font-size: 0.7rem; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase;
+    color: var(--ink-soft); font-family: var(--sans);
+  }
+  .category-group .category-header .count { font-weight: 400; letter-spacing: 0; text-transform: none; color: #ABAAA5; }
+
   .fact-card { border: 1px solid var(--border); border-radius: 8px; padding: 0.7rem 0.8rem; font-size: 0.83rem; margin-bottom: 0.55rem; background: var(--bg); }
   .fact-card .meta { color: var(--ink-soft); font-size: 0.68rem; font-family: var(--mono); margin-bottom: 0.3rem; display: flex; align-items: center; gap: 0.35rem; }
   .fact-card .link-tag {
@@ -207,19 +215,36 @@ function bubble(kind, text) {
   chat.scrollTop = chat.scrollHeight;
 }
 
+// Grouped by category (like Torqon's own dashboard) rather than one flat
+// list — makes it visible at a glance which facts are "type" vs "feature"
+// vs "decision", and which specific fact an update actually re-linked to.
 function renderMemory(facts) {
   const el = document.getElementById('memory-list');
   if (!facts.length) {
     el.innerHTML = '<div id="memory-empty">Nothing saved yet.</div>';
     return;
   }
-  el.innerHTML = facts.map(f => {
-    const linkTag = f.parent_fact_id
-      ? `<span class="link-tag">continues #${f.parent_fact_id}</span>`
-      : `<span class="link-tag">new thread</span>`;
-    return `<div class="fact-card">
-      <div class="meta">#${f.id} &middot; ${f.written_by} ${linkTag}</div>
-      <div class="content">${f.content}</div>
+
+  const groups = new Map(); // preserves first-seen order of each category
+  for (const f of facts) {
+    const cat = f.category || 'general';
+    if (!groups.has(cat)) groups.set(cat, []);
+    groups.get(cat).push(f);
+  }
+
+  el.innerHTML = Array.from(groups.entries()).map(([category, items]) => {
+    const cards = items.map(f => {
+      const linkTag = f.parent_fact_id
+        ? `<span class="link-tag">continues #${f.parent_fact_id}</span>`
+        : `<span class="link-tag">new thread</span>`;
+      return `<div class="fact-card">
+        <div class="meta">#${f.id} &middot; ${f.written_by} ${linkTag}</div>
+        <div class="content">${f.content}</div>
+      </div>`;
+    }).join('');
+    return `<div class="category-group">
+      <div class="category-header">${category} <span class="count">${items.length}</span></div>
+      ${cards}
     </div>`;
   }).join('');
 }
@@ -250,11 +275,16 @@ async function send() {
     if (!res.ok) throw new Error(await res.text());
     const data = await res.json();
     bubble('assistant', data.reply);
-    if (data.saved_fact) {
-      bubble('memory', 'saved to memory: ' + data.saved_fact.content);
+    if (data.saved_facts && data.saved_facts.length) {
+      // one bubble per atomic fact — a single message can yield several
+      for (const f of data.saved_facts) {
+        bubble('memory', `saved (${f.category}): ` + f.content);
+      }
       await loadMemory();
       status.className = 'saved';
-      status.textContent = 'saved to Relay memory';
+      status.textContent = data.saved_facts.length === 1
+        ? 'saved 1 fact to Relay memory'
+        : `saved ${data.saved_facts.length} facts to Relay memory`;
     } else {
       status.className = '';
       status.textContent = "Relay decided there was nothing worth saving in that message";

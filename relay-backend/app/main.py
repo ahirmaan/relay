@@ -6,9 +6,9 @@ from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
-from app.core import add_fact, append_fact, get_chain, get_latest, list_folders, reset_all
+from app.core import add_facts, append_facts, get_chain, get_latest, list_folders, reset_all
 from app.db import init_db
-from app.llm_client import chat_turn, extract_fact
+from app.llm_client import chat_turn
 
 app = FastAPI(title="Relay")
 
@@ -26,7 +26,6 @@ class FactIn(BaseModel):
 class ChatIn(BaseModel):
     message: str
     session_id: str
-    force_save: bool = False
 
 
 @app.get("/")
@@ -37,27 +36,13 @@ def root():
 
 @app.post("/chat")
 def chat(payload: ChatIn):
-    """Chat turn where the assistant — not the caller — decides what's worth saving.
-
-    This is the demo path: a human sends a normal message, the model replies
-    naturally, and separately decides whether the message describes a
-    decision worth appending to the session's baton chain. Contrast with
+    """Chat turn where the assistant — not the caller — decides what's worth
+    saving, and how many atomic facts (if any) that turns into. Contrast with
     POST /fact, where the caller explicitly hands over text to extract.
-
-    force_save exists for the dashboard's curated suggestion prompts only —
-    text a human already vetted as a genuine decision, not something typed
-    live. A 1B-class model's classification of those specific sentences was
-    measurably flaky (occasionally NONE on a prompt that's unambiguously a
-    decision), so trust the curation over the model for that one case rather
-    than leaving it to chance. Freeform typed messages never set this — the
-    model still makes the real, unpredictable call there, which is the
-    actual point being demonstrated.
     """
-    reply, fact = chat_turn(payload.message)
-    if payload.force_save and not fact:
-        fact = extract_fact(payload.message)
-    saved = append_fact(fact, payload.session_id, "assistant") if fact else None
-    return {"reply": reply, "saved_fact": saved}
+    reply, facts = chat_turn(payload.message)
+    saved = append_facts(facts, payload.session_id, "assistant") if facts else []
+    return {"reply": reply, "saved_facts": saved}
 
 
 @app.get("/folders")
@@ -78,7 +63,9 @@ def info():
 
 @app.post("/fact")
 def post_fact(fact: FactIn):
-    return add_fact(fact.text, fact.session_id, fact.written_by)
+    """Extract whatever atomic facts are in the given text and append them
+    all. Returns a list — possibly more than one fact, possibly empty."""
+    return add_facts(fact.text, fact.session_id, fact.written_by)
 
 
 @app.get("/chain/{session_id}")
