@@ -127,6 +127,7 @@
   #send:active { transform: scale(0.97); }
   #send:disabled { background: #CFCFCC; cursor: default; transform: none; }
   #status { font-size: 0.72rem; color: var(--ink-soft); margin-top: 0.5rem; min-height: 1em; }
+  #status:empty { margin-top: 0; min-height: 0; } /* no reserved gap when there's nothing to show — status is blank most of the time now that saving is explicit-only */
   #status.saving { color: #7A6A2E; }
   #status.saved { color: var(--mem-text); }
 
