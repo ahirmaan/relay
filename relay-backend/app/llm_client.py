@@ -54,11 +54,29 @@ User message:
 \"\"\"{message}\"\"\"
 """
 
+# A cheap yes/no gate, asked before the harder atomic-extraction call. Tried
+# skipping this and just trusting EXTRACTION_PROMPT's own NONE judgment for
+# ordinary messages — it under-saved real project detail that had no
+# explicit "save this" framing, the same "combine classify AND do the harder
+# task in one instruction" mistake this file's history already ruled out for
+# a different pair of prompts. Splitting it back into "is there anything
+# here" then, separately, "break it into atomic facts" restored the same
+# freeform auto-save reliability the dashboard actually promises.
+DECISION_GATE_PROMPT = """Read the message below. Does it contain any concrete detail worth remembering later — a name, a decision, a feature, a fact about a project, a preference, anything specific? Casual conversation with no real content doesn't count.
+
+If yes, respond with exactly: YES
+If no, respond with exactly: NO
+
+Message:
+\"\"\"{message}\"\"\"
+
+Response:"""
+
 # Explicit asks to remember something should always be saved, no need to ask
 # the model to judge intent when the user already stated it directly. Checked
-# before trusting EXTRACTION_PROMPT's own NONE judgment — if the model still
-# finds nothing to extract from an explicit ask, chat_turn falls back to a
-# single deterministic "note" fact rather than silently saving nothing.
+# before DECISION_GATE_PROMPT — if the model still finds nothing to extract
+# from an explicit ask, chat_turn falls back to a single deterministic "note"
+# fact rather than silently saving nothing.
 EXPLICIT_SAVE_TRIGGERS = (
     "save that", "save this", "remember that", "remember this",
     "note that", "note this", "please remember", "please save", "please note",
@@ -167,11 +185,19 @@ def chat_turn(message: str) -> tuple[str, list[tuple[str, str]]]:
             reply += "."
         reply = (reply + " " + FALLBACK_FOLLOWUP).strip()
 
-    facts = extract_facts(message)
-    if not facts and any(trigger in message.lower() for trigger in EXPLICIT_SAVE_TRIGGERS):
-        # The user explicitly asked to save something, but the model still
-        # found nothing to extract — don't silently save nothing when the
-        # intent was unambiguous. No second model call, just save the raw ask.
-        facts = [("note", message.strip())]
+    is_explicit_ask = any(trigger in message.lower() for trigger in EXPLICIT_SAVE_TRIGGERS)
+
+    facts: list[tuple[str, str]] = []
+    if is_explicit_ask:
+        facts = extract_facts(message)
+        if not facts:
+            # The user explicitly asked to save something, but extraction
+            # still found nothing — don't silently save nothing when the
+            # intent was unambiguous. No extra model call, just the raw ask.
+            facts = [("note", message.strip())]
+    else:
+        gate = _complete(DECISION_GATE_PROMPT.format(message=message)).strip().upper()
+        if gate.startswith("YES"):
+            facts = extract_facts(message)
 
     return reply, facts
