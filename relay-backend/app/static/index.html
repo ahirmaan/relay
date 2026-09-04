@@ -207,7 +207,7 @@
   <div id="chat">
     <div id="empty-state">
       <div class="glyph">Relay</div>
-      <div class="hint">Say something worth remembering, or just say hello. Relay decides what stays.</div>
+      <div class="hint">Chat normally. Say "save this" or "remember that" when you want something kept.</div>
     </div>
   </div>
   <div id="composer">
@@ -313,9 +313,8 @@ function createFolder() {
 
 // First-visit onboarding, shown once — explains the two things people keep
 // getting confused by without it: how to make sure something gets saved
-// (say so directly, rather than hoping the auto-detection catches it), and
-// that saved facts live in a folder they can switch or create, separate
-// from the chat itself.
+// (nothing is saved unless you ask), and that saved facts live in a folder
+// they can switch or create, separate from the chat itself.
 const ONBOARDING_STEPS = [
   {
     title: 'Chat like normal.',
@@ -323,7 +322,7 @@ const ONBOARDING_STEPS = [
   },
   {
     title: 'Tell it what to save.',
-    body: 'Say "save this" or "remember that" and it\'s saved, guaranteed. Relay also tries to catch important details on its own as you talk, but asking directly is the sure way.',
+    body: 'Nothing gets saved on its own. Say "save this" or "remember that" and it is, every time, guaranteed.',
   },
   {
     title: 'Everything lands in a folder.',
@@ -449,8 +448,8 @@ async function send() {
 
   bubble('user', message);
   input.value = '';
-  status.className = 'saving';
-  status.textContent = 'sending to Relay, deciding whether to save this…';
+  status.className = '';
+  status.textContent = ''; // no "deciding..." message — nothing is saved unless explicitly asked, so there's nothing to announce mid-flight
   document.getElementById('send').disabled = true;
 
   try {
@@ -473,10 +472,9 @@ async function send() {
       loadFolders(); // fact counts may have changed
       status.className = 'saved';
       status.textContent = n === 1 ? 'saved 1 fact to Relay memory' : `saved ${n} facts to Relay memory`;
-    } else {
-      status.className = '';
-      status.textContent = "Relay decided there was nothing worth saving in that message";
     }
+    // no explicit save ask -> saved_facts is always empty, that's the
+    // expected default now, not worth a status line every single message
   } catch (e) {
     status.className = '';
     status.textContent = 'error: ' + e.message;

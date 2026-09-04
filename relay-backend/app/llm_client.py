@@ -223,10 +223,20 @@ def extract_facts(text: str) -> list[tuple[str, str]]:
 
 
 def chat_turn(message: str) -> tuple[str, list[tuple[str, str]]]:
-    """Reply to a chat message, and separately let the model decide what (if
-    anything) is worth saving from it — the model does the deciding, not the
-    caller. Returns the reply plus a list of (category, content) facts, which
-    may be empty.
+    """Reply to a chat message, and only save something if the user
+    explicitly asked to (EXPLICIT_SAVE_TRIGGERS). Returns the reply plus a
+    list of (category, content) facts, which is empty unless the message
+    contained an explicit ask.
+
+    Auto-detecting "worth remembering" from freeform chat was tried at
+    length (see extract_facts's own docstring for the reliability work that
+    went into it) and still produced real false positives even after every
+    fix, e.g. a plain "hello, who are you?" getting extracted as a fact
+    named "Relay" — a save that never should have happened, not a rare
+    fluke. Auto-detection's failure mode is invisible until you notice
+    something wrong in Memory later; asking the user to say "save this" is
+    the deterministic fix, the same reasoning behind EXPLICIT_SAVE_TRIGGERS
+    itself, just applied to the whole feature instead of one edge case.
     """
     reply = _complete(REPLY_PROMPT.format(message=message)).strip()
 
@@ -236,18 +246,13 @@ def chat_turn(message: str) -> tuple[str, list[tuple[str, str]]]:
             reply += "."
         reply = (reply + " " + FALLBACK_FOLLOWUP).strip()
 
-    is_explicit_ask = any(trigger in message.lower() for trigger in EXPLICIT_SAVE_TRIGGERS)
-
-    # No separate yes/no gate before this — measured it directly and it
-    # failed at the same ~40% rate extract_facts() itself did, so it was
-    # doubling latency and cost without adding reliability. extract_facts()
-    # already returns [] for genuine small talk (its own NONE handling) and
-    # now retries once before accepting an empty result as real.
-    facts = extract_facts(message)
-    if is_explicit_ask and not facts:
-        # The user explicitly asked to save something, but extraction still
-        # found nothing — don't silently save nothing when the intent was
-        # unambiguous. No extra model call, just the raw ask.
-        facts = [("note", message.strip())]
+    facts: list[tuple[str, str]] = []
+    if any(trigger in message.lower() for trigger in EXPLICIT_SAVE_TRIGGERS):
+        facts = extract_facts(message)
+        if not facts:
+            # The user explicitly asked to save something, but extraction
+            # still found nothing — don't silently save nothing when the
+            # intent was unambiguous. No extra model call, just the raw ask.
+            facts = [("note", message.strip())]
 
     return reply, facts
