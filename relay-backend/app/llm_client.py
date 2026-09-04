@@ -26,7 +26,13 @@ OPENROUTER_API_KEY = os.environ.get("OPENROUTER_API_KEY")
 
 EXTRACTION_PROMPT = """You are a memory system that distills raw input into a single durable fact.
 
-Read the input below and summarize the key decision or state change it describes in one or two concise sentences. Write it as a standalone statement of fact (no preamble, no "the user said", no quotes around it). If the input contains no clear decision or state change, summarize its most important takeaway the same way.
+Read the input below and summarize the key decision, state, or detail it describes in one or two concise sentences. Write it as a standalone statement of fact (no preamble, no "the user said", no quotes around it).
+
+Two things to ignore when writing the fact:
+- Any part of the input that's just an instruction to save/remember/note something (e.g. "could you save this", "remember this for me") — that's a request about what to do with the fact, not the fact itself.
+- The name of the memory tool being addressed, if it's only mentioned as who to save the information to (e.g. "save this to Relay"). Don't confuse that name with the actual subject being described.
+
+If the input contains no clear decision or state change, summarize its most important takeaway the same way.
 
 Input:
 \"\"\"{text}\"\"\"
