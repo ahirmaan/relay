@@ -51,6 +51,22 @@ def _normalize_category(category: str) -> str:
     return " ".join(words) or category.lower()
 
 
+# Categories that describe a single attribute a project only ever has one
+# current value of — a name, a type, a status. Linking still required a
+# shared keyword for these until this was reported directly: "name: Kairos"
+# then "name: Pluto" never linked, because the two names share zero words,
+# there's nothing about a full replacement's wording that could ever
+# overlap with what it replaced. For an attribute like this, being in the
+# same category IS enough to know it's an update, not a new, unrelated
+# fact — unlike "feature" or "decision", where two entries in the same
+# category are usually genuinely separate things that should NOT collapse
+# into one thread just because they're both "features".
+_SINGLE_VALUE_CATEGORIES = frozenset({
+    "name", "type", "title", "status", "platform", "version", "priority",
+    "app name", "app type", "project name", "project type",
+})
+
+
 def append_facts(items: list[tuple[str, str]], session_id: str, written_by: str) -> list[dict]:
     """Insert one or more already-decided atomic facts — each a (category,
     content) pair — linked independently, not as one blob. Each fact links
@@ -79,13 +95,14 @@ def append_facts(items: list[tuple[str, str]], session_id: str, written_by: str)
             for category, content in items:
                 new_keywords = _keywords(content)
                 normalized_category = _normalize_category(category)
+                is_single_value = normalized_category in _SINGLE_VALUE_CATEGORIES
                 parent_fact_id: Optional[int] = None
-                if new_keywords:
+                if new_keywords or is_single_value:
                     for row in pool:
-                        if (
-                            _normalize_category(row["category"]) == normalized_category
-                            and (_keywords(row["content"]) & new_keywords)
-                        ):
+                        same_category = _normalize_category(row["category"]) == normalized_category
+                        if not same_category:
+                            continue
+                        if is_single_value or (_keywords(row["content"]) & new_keywords):
                             parent_fact_id = row["id"]
                             break
 

@@ -155,6 +155,23 @@
   }
   #memory-empty { color: var(--ink-soft); font-size: 0.85rem; padding: 1rem 0; text-align: center; }
 
+  /* a chain card: a small vertical timeline connecting an update to what it
+     replaced, instead of two separate cards that just happen to sit near
+     each other */
+  .chain-card { padding-top: 0.55rem; padding-bottom: 0.55rem; }
+  .chain-entry { position: relative; padding: 0.15rem 0 0.15rem 1rem; line-height: 1.5; }
+  .chain-entry::before {
+    content: ''; position: absolute; left: 0.15rem; top: 0.6rem;
+    width: 6px; height: 6px; border-radius: 50%; background: var(--border);
+  }
+  .chain-entry:not(:last-child)::after {
+    content: ''; position: absolute; left: 0.38rem; top: 0.85rem; bottom: -0.15rem;
+    width: 1px; background: var(--border);
+  }
+  .chain-entry.superseded { color: var(--ink-soft); text-decoration: line-through; font-size: 0.8rem; }
+  .chain-entry.latest { color: var(--ink); font-weight: 500; }
+  .chain-entry.latest::before { background: var(--ink); }
+
   /* ============================================================
      Desktop enhancement: chat + memory side by side, tab bar gone.
      Layered ON TOP of the mobile base above, not the default.
@@ -413,6 +430,37 @@ function bubble(kind, text) {
 // Grouped by category (like Torqon's own dashboard) rather than one flat
 // list — makes it visible at a glance which facts are "type" vs "feature"
 // vs "decision", and which specific fact an update actually re-linked to.
+// A fact that updates an earlier one was rendering as just another flat
+// card in the pile, with a small text tag as the only clue it was
+// connected to anything — reported directly as feeling disconnected, which
+// undersells the one thing this whole app is actually for. Facts within a
+// category are now reassembled into their real chains (following
+// parent_fact_id) and each chain renders as ONE card: a small vertical
+// timeline, superseded entries dimmed and struck through, the current
+// value bold at the bottom — an update visibly replaces what came before
+// it instead of just sitting near it.
+function buildChains(items) {
+  const byId = new Map(items.map(f => [f.id, f]));
+  const childOf = new Map(); // parent_fact_id -> the fact that supersedes it
+  const roots = [];
+  for (const f of items) {
+    if (f.parent_fact_id && byId.has(f.parent_fact_id)) {
+      childOf.set(f.parent_fact_id, f);
+    } else {
+      roots.push(f);
+    }
+  }
+  return roots.map(root => {
+    const chain = [root];
+    let cur = root;
+    while (childOf.has(cur.id)) {
+      cur = childOf.get(cur.id);
+      chain.push(cur);
+    }
+    return chain;
+  });
+}
+
 function renderMemory(facts) {
   const el = document.getElementById('memory-list');
   if (!facts.length) {
@@ -428,21 +476,22 @@ function renderMemory(facts) {
   }
 
   el.innerHTML = Array.from(groups.entries()).map(([category, items]) => {
-    const cards = items.map(f => {
-      // No id numbers or "written_by" shown — not meaningful to a visitor.
-      // The link tag stays: it's the one visible proof of the actual baton
-      // handoff mechanic (this fact updates an earlier one vs starting
-      // fresh), just without exposing the raw id it links to.
-      const linkTag = f.parent_fact_id
-        ? `<span class="link-tag">continues earlier note</span>`
-        : `<span class="link-tag">new</span>`;
-      return `<div class="fact-card">
-        <div class="content">${f.content}</div>
-        <div class="tag-row">${linkTag}</div>
-      </div>`;
+    const chains = buildChains(items);
+    const cards = chains.map(chain => {
+      if (chain.length === 1) {
+        return `<div class="fact-card">
+          <div class="content">${chain[0].content}</div>
+          <div class="tag-row"><span class="link-tag">new</span></div>
+        </div>`;
+      }
+      const entries = chain.map((f, i) => {
+        const isLatest = i === chain.length - 1;
+        return `<div class="chain-entry ${isLatest ? 'latest' : 'superseded'}">${f.content}</div>`;
+      }).join('');
+      return `<div class="fact-card chain-card">${entries}</div>`;
     }).join('');
     return `<div class="category-group">
-      <div class="category-header">${category} <span class="count">${items.length}</span></div>
+      <div class="category-header">${category} <span class="count">${chains.length}</span></div>
       ${cards}
     </div>`;
   }).join('');
