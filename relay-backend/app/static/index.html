@@ -56,15 +56,16 @@
   body[data-view="chat"] #main { display: flex; }
   body[data-view="memory"] #memory-panel { display: flex; }
 
-  /* first-visit onboarding, shown once (see relay_onboarded in localStorage) */
+  /* first-visit onboarding, shown once (see relay_onboarded in localStorage) —
+     centered on every screen size, not a bottom sheet on mobile */
   #onboarding {
     position: fixed; inset: 0; background: rgba(23,24,28,0.4); z-index: 50;
-    display: flex; align-items: flex-end; justify-content: center;
+    display: flex; align-items: center; justify-content: center; padding: 1rem;
   }
   #onboarding[hidden] { display: none; }
   #onboarding .card {
-    background: var(--surface); border-radius: 14px 14px 0 0; width: 100%; max-width: 420px;
-    padding: 1.4rem 1.3rem 1.6rem; box-shadow: 0 -4px 24px rgba(0,0,0,0.08);
+    background: var(--surface); border-radius: 14px; width: 100%; max-width: 420px;
+    padding: 1.4rem 1.3rem 1.6rem; box-shadow: 0 8px 30px rgba(0,0,0,0.14);
   }
   #onboarding .step-glyph { font-family: var(--serif); font-size: 1rem; color: var(--ink-soft); margin-bottom: 0.3rem; }
   #onboarding h3 { font-family: var(--serif); font-weight: 500; font-size: 1.25rem; margin: 0 0 0.5rem; letter-spacing: -0.01em; }
@@ -80,11 +81,6 @@
   #onboarding button.skip {
     font-size: 0.78rem; color: var(--ink-soft); background: none; border: none; cursor: pointer;
     font-family: var(--sans); padding: 0.5rem;
-  }
-
-  @media (min-width: 760px) {
-    #onboarding { align-items: center; }
-    #onboarding .card { border-radius: 14px; }
   }
 
   #main { flex-direction: column; min-width: 0; min-height: 0; }
