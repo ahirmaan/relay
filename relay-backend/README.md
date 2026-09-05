@@ -64,9 +64,9 @@ exactly how the current state was reached.
 ## How the baton pattern works
 
 1. Every session (`session_id`) has its own facts. On the dashboard a session
-   is an IP address plus a folder name the visitor picks (see "Live link"
-   below) — the MCP server and the raw HTTP API use whatever `session_id`
-   the caller passes directly instead.
+   is a browser-stored client id plus a folder name the visitor picks (see
+   "Live link" below) — the MCP server and the raw HTTP API use whatever
+   `session_id` the caller passes directly instead.
 2. When new raw input comes in, it's run through the configured LLM, which
    breaks it into **atomic facts** — small, self-contained details, not one
    summary sentence. "I'm building a Pomodoro timer called Hello, it can
@@ -129,14 +129,20 @@ both, no separate mobile build. This was deliberate, not a default: the
 phone is the primary surface this was designed for, desktop is the addition
 layered on top of it, not the other way round.
 
-**Identity is the visitor's IP address**, not a random id generated in the
-browser. An earlier version used `localStorage`, which meant a page refresh
-or a different browser lost the session; a visitor's memory now survives
-both, as long as they're on the same network. This is server-side
-(`client_ip()` in `app/main.py`, reading `X-Forwarded-For` since Vercel sits
-in front of the app) — the browser never sees or handles the raw IP itself.
+**Identity is a random id the browser generates once and stores in
+`localStorage`**, sent with every request. This went through two designs:
+first a browser-stored id (worked, but got blamed for a refresh losing
+data that later turned out to actually be caused by test cleanup wiping the
+shared database, see `/reset` below), then the visitor's IP address instead
+(meant to survive a refresh even if storage failed), which introduced a
+worse bug — a real IP address isn't guaranteed stable request-to-request on
+real networks (mobile data, some Wi-Fi, corporate NAT), so identity could
+silently change on *any* request, not just across a refresh, and a plain
+folder switch could look like data loss. Back to a stored client id, which
+has neither failure mode, at the cost of resetting if the visitor clears
+site data or switches browsers.
 
-**Folders** are a namespace under that IP, picked in the UI, not a fixed
+**Folders** are a namespace under that id, picked in the UI, not a fixed
 category list. The folder switcher lives in the Memory tab (`+ Folder` to
 create one, tap a pill to switch); the chat header just shows which folder
 you're currently in as plain text, it doesn't duplicate the switcher. Every
@@ -364,14 +370,15 @@ left in the repo as a record of that, not something to redeploy.
 
 | Method | Path | Body / Params | Description |
 |---|---|---|---|
-| `POST` | `/chat` | `{ "message": str, "folder": str }` | The dashboard's path: reply to `message` naturally, and separately extract whatever atomic facts (if any) it contains. Session is the caller's IP + `folder`, not something the client can spoof. Returns `{ "reply": str, "saved_facts": list[dict], "folder": str }` |
-| `GET` | `/my-folders` | — | This visitor's own folders (by IP), most recently active first |
-| `GET` | `/my-memory/{folder}` | — | This visitor's chain for one of their own folders |
-| `POST` | `/fact` | `{ "text": str, "session_id": str, "written_by": str }` | Caller explicitly hands over text and a raw `session_id` (used by the MCP server and direct testing, not IP-scoped); extracts whatever atomic facts it contains and appends them all. Returns a list, possibly empty |
+| `POST` | `/chat` | `{ "message": str, "folder": str, "client_id": str }` | The dashboard's path: reply to `message` naturally, and separately extract whatever atomic facts (if any) it contains. Session is `client_id` + `folder`. Returns `{ "reply": str, "saved_facts": list[dict], "folder": str }` |
+| `GET` | `/my-folders` | `?client_id=` | This visitor's own folders, most recently active first |
+| `GET` | `/my-memory/{folder}` | `?client_id=` | This visitor's chain for one of their own folders |
+| `DELETE` | `/my-memory/{folder}` | `?client_id=` | Wipes just this visitor's one folder. The one to use for clearing test data on a live deployment, not `/reset` below |
+| `POST` | `/fact` | `{ "text": str, "session_id": str, "written_by": str }` | Caller explicitly hands over text and a raw `session_id` (used by the MCP server and direct testing, not client-id-scoped); extracts whatever atomic facts it contains and appends them all. Returns a list, possibly empty |
 | `GET` | `/chain/{session_id}` | — | Full baton chain for a raw session_id, oldest → newest |
 | `GET` | `/latest/{session_id}` | — | Just the most recent fact for a raw session_id (404 if none) |
 | `GET` | `/folders` | — | Every folder across every visitor. Not used by the dashboard (see `/my-folders`); kept for direct inspection |
-| `DELETE` | `/reset` | — | Wipes every fact in every folder, no undo. Not linked from the UI. For clearing dev/test data between demo runs: `curl -X DELETE <url>/reset` |
+| `DELETE` | `/reset` | — | Wipes every fact for every visitor, globally, no undo. Not linked from the UI. Real collateral-damage risk on a shared live deployment, prefer `DELETE /my-memory/{folder}` |
 | `GET` | `/` | — | The dashboard (`app/static/index.html`) |
 
 ### `facts` table schema
@@ -384,7 +391,7 @@ left in the repo as a record of that, not something to redeploy.
 | `written_by` | TEXT | model/agent name that produced it |
 | `timestamp` | TIMESTAMPTZ | defaults to insert time |
 | `parent_fact_id` | INTEGER, nullable | id of the earlier fact (same category, shared keyword) this one updates |
-| `session_id` | TEXT | groups facts into chains — an IP+folder on the dashboard, or whatever the caller passed via `/fact` / MCP |
+| `session_id` | TEXT | groups facts into chains — a client_id+folder on the dashboard, or whatever the caller passed via `/fact` / MCP |
 
 ## Proving it works
 
