@@ -155,14 +155,18 @@
   }
   #memory-empty { color: var(--ink-soft); font-size: 0.85rem; padding: 1rem 0; text-align: center; }
 
-  /* Only the current value shows in the card — history isn't spelled out
-     inline, just counted: a "+N" badge for how many earlier values this
-     one replaced. */
+  /* Only the current value shows in the card by default — history isn't
+     spelled out inline, just counted: a "+N" badge for how many earlier
+     values this one replaced, click it to expand/collapse the list. */
   .content-row { display: flex; align-items: flex-start; justify-content: space-between; gap: 0.5rem; }
   .history-badge {
     flex-shrink: 0; font-size: 0.68rem; font-weight: 600; color: var(--ink-soft);
-    background: var(--accent-soft); border-radius: 5px; padding: 0.08rem 0.4rem;
+    background: var(--accent-soft); border: none; border-radius: 5px; padding: 0.08rem 0.4rem;
+    font-family: var(--sans); cursor: pointer;
   }
+  .history-badge:hover { background: var(--border); color: var(--ink); }
+  .history-list { margin-top: 0.4rem; padding-top: 0.35rem; border-top: 1px dashed var(--border); }
+  .history-item { color: var(--ink-soft); text-decoration: line-through; font-size: 0.78rem; line-height: 1.6; }
 
   /* ============================================================
      Desktop enhancement: chat + memory side by side, tab bar gone.
@@ -453,6 +457,11 @@ function buildChains(items) {
   });
 }
 
+// Which chains are currently expanded, keyed by the latest fact's id —
+// module-level so it survives a re-render (loadMemory runs again after
+// every save, which would otherwise collapse everything back each time).
+const expandedChains = new Set();
+
 function renderMemory(facts) {
   const el = document.getElementById('memory-list');
   if (!facts.length) {
@@ -472,13 +481,24 @@ function renderMemory(facts) {
     const cards = chains.map(chain => {
       const latest = chain[chain.length - 1];
       const historyCount = chain.length - 1;
-      const badge = historyCount > 0 ? `<span class="history-badge">+${historyCount}</span>` : '';
+      const isExpanded = historyCount > 0 && expandedChains.has(latest.id);
+
+      const badge = historyCount > 0
+        ? `<button class="history-badge" data-chain-id="${latest.id}">${isExpanded ? '−' : '+'}${historyCount}</button>`
+        : '';
       const tag = historyCount > 0 ? 'updated' : 'new';
+      const history = isExpanded
+        ? `<div class="history-list">${chain.slice(0, -1).map(f =>
+            `<div class="history-item">${f.content}</div>`
+          ).join('')}</div>`
+        : '';
+
       return `<div class="fact-card">
         <div class="content-row">
           <div class="content">${latest.content}</div>
           ${badge}
         </div>
+        ${history}
         <div class="tag-row"><span class="link-tag">${tag}</span></div>
       </div>`;
     }).join('');
@@ -487,6 +507,15 @@ function renderMemory(facts) {
       ${cards}
     </div>`;
   }).join('');
+
+  el.querySelectorAll('.history-badge').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const id = Number(btn.dataset.chainId);
+      if (expandedChains.has(id)) expandedChains.delete(id);
+      else expandedChains.add(id);
+      renderMemory(facts); // re-render with the same data, just toggled
+    });
+  });
 }
 
 async function loadMemory() {
