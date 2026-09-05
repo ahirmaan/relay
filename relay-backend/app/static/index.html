@@ -166,6 +166,7 @@
     flex-shrink: 0; font-size: 0.78rem; font-weight: 800; color: var(--ink);
     background: var(--accent-soft); border-radius: 5px; padding: 0.08rem 0.45rem;
   }
+  .history-badge.expanded { background: var(--ink); color: #fff; }
   .history-list { margin-top: 0.4rem; padding-top: 0.35rem; border-top: 1px dashed var(--border); }
   .history-item { color: var(--ink-soft); font-size: 0.78rem; line-height: 1.6; }
 
@@ -484,8 +485,12 @@ function renderMemory(facts) {
       const historyCount = chain.length - 1;
       const isExpanded = historyCount > 0 && expandedChains.has(latest.id);
 
+      // Always the same "+N" glyphs — swapping to a "−" for the expanded
+      // state read as noticeably thinner than "+" even at the identical
+      // font-weight (checked: both computed to 800), so the state now
+      // shows via a filled background instead of changing the character.
       const badge = historyCount > 0
-        ? `<span class="history-badge">${isExpanded ? '−' : '+'}${historyCount}</span>`
+        ? `<span class="history-badge${isExpanded ? ' expanded' : ''}">+${historyCount}</span>`
         : '';
       // The "updated" pill is gone — the bold badge above already says
       // that. "new" still shows for a fact with no history at all, nothing
