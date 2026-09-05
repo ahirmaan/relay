@@ -37,7 +37,13 @@
     font-family: var(--sans);
     color: var(--ink);
     background: var(--bg);
+    /* 100vh on mobile counts the space behind the address bar, so the page
+       renders taller than what's actually visible and the composer sits
+       below the fold until you scroll. 100dvh tracks the real visible
+       viewport instead; the 100vh line stays first as a fallback for
+       browsers that don't support dvh yet. */
     min-height: 100vh;
+    min-height: 100dvh;
     display: flex;
     flex-direction: column;
   }
@@ -170,7 +176,7 @@
      Layered ON TOP of the mobile base above, not the default.
      ============================================================ */
   @media (min-width: 760px) {
-    body { flex-direction: row; height: 100vh; }
+    body { flex-direction: row; height: 100vh; height: 100dvh; }
     #tabbar { display: none; }
     #main, #memory-panel { display: flex; }
 
