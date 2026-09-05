@@ -155,22 +155,14 @@
   }
   #memory-empty { color: var(--ink-soft); font-size: 0.85rem; padding: 1rem 0; text-align: center; }
 
-  /* a chain card: a small vertical timeline connecting an update to what it
-     replaced, instead of two separate cards that just happen to sit near
-     each other */
-  .chain-card { padding-top: 0.55rem; padding-bottom: 0.55rem; }
-  .chain-entry { position: relative; padding: 0.15rem 0 0.15rem 1rem; line-height: 1.5; }
-  .chain-entry::before {
-    content: ''; position: absolute; left: 0.15rem; top: 0.6rem;
-    width: 6px; height: 6px; border-radius: 50%; background: var(--border);
+  /* Only the current value shows in the card — history isn't spelled out
+     inline, just counted: a "+N" badge for how many earlier values this
+     one replaced. */
+  .content-row { display: flex; align-items: flex-start; justify-content: space-between; gap: 0.5rem; }
+  .history-badge {
+    flex-shrink: 0; font-size: 0.68rem; font-weight: 600; color: var(--ink-soft);
+    background: var(--accent-soft); border-radius: 5px; padding: 0.08rem 0.4rem;
   }
-  .chain-entry:not(:last-child)::after {
-    content: ''; position: absolute; left: 0.38rem; top: 0.85rem; bottom: -0.15rem;
-    width: 1px; background: var(--border);
-  }
-  .chain-entry.superseded { color: var(--ink-soft); text-decoration: line-through; font-size: 0.8rem; }
-  .chain-entry.latest { color: var(--ink); font-weight: 500; }
-  .chain-entry.latest::before { background: var(--ink); }
 
   /* ============================================================
      Desktop enhancement: chat + memory side by side, tab bar gone.
@@ -478,17 +470,17 @@ function renderMemory(facts) {
   el.innerHTML = Array.from(groups.entries()).map(([category, items]) => {
     const chains = buildChains(items);
     const cards = chains.map(chain => {
-      if (chain.length === 1) {
-        return `<div class="fact-card">
-          <div class="content">${chain[0].content}</div>
-          <div class="tag-row"><span class="link-tag">new</span></div>
-        </div>`;
-      }
-      const entries = chain.map((f, i) => {
-        const isLatest = i === chain.length - 1;
-        return `<div class="chain-entry ${isLatest ? 'latest' : 'superseded'}">${f.content}</div>`;
-      }).join('');
-      return `<div class="fact-card chain-card">${entries}</div>`;
+      const latest = chain[chain.length - 1];
+      const historyCount = chain.length - 1;
+      const badge = historyCount > 0 ? `<span class="history-badge">+${historyCount}</span>` : '';
+      const tag = historyCount > 0 ? 'updated' : 'new';
+      return `<div class="fact-card">
+        <div class="content-row">
+          <div class="content">${latest.content}</div>
+          ${badge}
+        </div>
+        <div class="tag-row"><span class="link-tag">${tag}</span></div>
+      </div>`;
     }).join('');
     return `<div class="category-group">
       <div class="category-header">${category} <span class="count">${chains.length}</span></div>
