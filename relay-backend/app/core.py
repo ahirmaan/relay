@@ -171,6 +171,25 @@ def list_folders() -> list[dict]:
         conn.close()
 
 
+def reset_session(session_id: str) -> int:
+    """Delete every fact for exactly one session_id. Returns how many rows
+    were removed. Use this instead of reset_all() whenever you're clearing
+    out test data on a shared live deployment — reset_all() wipes every
+    visitor's data, not just yours, which is real collateral damage risk on
+    anything other than a fully private instance.
+    """
+    conn = get_connection()
+    try:
+        with conn.cursor() as cur:
+            cur.execute("SELECT COUNT(*) AS n FROM facts WHERE session_id = %s", (session_id,))
+            count = cur.fetchone()["n"]
+            cur.execute("DELETE FROM facts WHERE session_id = %s", (session_id,))
+        conn.commit()
+        return count
+    finally:
+        conn.close()
+
+
 def reset_all() -> int:
     """Delete every fact in every folder. Returns how many rows were removed.
 

@@ -2,11 +2,11 @@
 
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
-from app.core import add_facts, append_facts, get_chain, get_latest, list_folders, reset_all
+from app.core import add_facts, append_facts, get_chain, get_latest, list_folders, reset_all, reset_session
 from app.db import init_db
 from app.llm_client import chat_turn
 
@@ -26,29 +26,27 @@ class FactIn(BaseModel):
 class ChatIn(BaseModel):
     message: str
     folder: str = "general"
+    client_id: str
 
 
-def client_ip(request: Request) -> str:
-    """Best-effort real client IP. Behind Vercel (and most proxies/hosts)
-    the actual visitor address is in X-Forwarded-For, not request.client,
-    which would otherwise just be the proxy's own address."""
-    forwarded = request.headers.get("x-forwarded-for")
-    if forwarded:
-        return forwarded.split(",")[0].strip()
-    return request.client.host if request.client else "unknown"
+def scoped_session(client_id: str, folder: str) -> str:
+    """The dashboard's actual session_id: a stable id the browser generates
+    once and stores in localStorage, plus a folder name the visitor picks,
+    e.g. "9f3a2c1b::pomodoro-app".
 
-
-def scoped_session(ip: str, folder: str) -> str:
-    """The dashboard's actual session_id: an IP address plus a folder name
-    the visitor picks, e.g. "1.2.3.4::pomodoro-app". Scoping by IP (instead
-    of the old browser-localStorage random id) means the same visitor sees
-    the same memory across a page refresh or a different browser, as long
-    as they're on the same network — the tradeoff is that a shared network
-    (an office, a shared hotspot) shares one identity too. Folder is just a
-    namespace under that IP, same idea as the old per-category sub-sessions,
-    generalized to any name the visitor wants, not a fixed category list.
+    This used to be the caller's IP address instead of a stored client id.
+    Switched after a real, reported bug: a visitor's facts appeared to
+    vanish when switching folders, and it couldn't be reproduced under
+    stable-IP testing no matter how fast folders were switched — pointing at
+    the visitor's actual IP not being stable request-to-request (common on
+    mobile data, some Wi-Fi, corporate NAT), which silently changes identity
+    on every single request, not just across a refresh. A browser-stored id
+    doesn't have that failure mode; the tradeoff is it resets if the visitor
+    clears site data or switches browsers, same as any localStorage-based
+    approach. Folder is a namespace under that id, same idea as the old
+    per-category sub-sessions, generalized to any name the visitor wants.
     """
-    return f"{ip}::{folder or 'general'}"
+    return f"{client_id}::{folder or 'general'}"
 
 
 @app.get("/")
@@ -58,20 +56,21 @@ def root():
 
 
 @app.post("/chat")
-def chat(payload: ChatIn, request: Request):
+def chat(payload: ChatIn):
     """Chat turn where the assistant — not the caller — decides what's worth
     saving, and how many atomic facts (if any) that turns into. Session
-    identity is the caller's IP plus the folder they picked, not something
-    the client can spoof by sending an arbitrary session_id. Contrast with
-    POST /fact, where the caller explicitly hands over text and a raw
-    session_id to extract into (used by the MCP server, not the dashboard).
+    identity is the browser's stored client_id plus the folder picked, not
+    something guessable/spoofable in a meaningful way since it's just a
+    random id nobody else has. Contrast with POST /fact, where the caller
+    explicitly hands over text and a raw session_id to extract into (used by
+    the MCP server, not the dashboard).
 
     Also fetches this folder's existing chain first and hands it to
     chat_turn as context, so "what did I save about X" or "fetch Y from
     memory" can actually be answered — this used to be write-only, the
     reply had no visibility into anything already saved.
     """
-    session_id = scoped_session(client_ip(request), payload.folder)
+    session_id = scoped_session(payload.client_id, payload.folder)
     existing = get_chain(session_id)
     memory_context = "\n".join(f"{f['category']}: {f['content']}" for f in existing)
     reply, facts = chat_turn(payload.message, memory_context=memory_context)
@@ -80,10 +79,11 @@ def chat(payload: ChatIn, request: Request):
 
 
 @app.get("/my-folders")
-def my_folders(request: Request):
-    """List this visitor's own folders (by IP), most recently active first —
-    unlike GET /folders, this never shows another visitor's folder names."""
-    prefix = client_ip(request) + "::"
+def my_folders(client_id: str):
+    """List this visitor's own folders (by client_id), most recently active
+    first — unlike GET /folders, this never shows another visitor's folder
+    names."""
+    prefix = client_id + "::"
     return [
         {**f, "folder": f["session_id"][len(prefix):]}
         for f in list_folders()
@@ -92,10 +92,20 @@ def my_folders(request: Request):
 
 
 @app.get("/my-memory/{folder}")
-def my_memory(folder: str, request: Request):
-    """This visitor's chain for one of their own folders, by IP + folder
-    name — the dashboard's read path, mirroring POST /chat's write path."""
-    return get_chain(scoped_session(client_ip(request), folder))
+def my_memory(folder: str, client_id: str):
+    """This visitor's chain for one of their own folders, by client_id +
+    folder name — the dashboard's read path, mirroring POST /chat's write
+    path."""
+    return get_chain(scoped_session(client_id, folder))
+
+
+@app.delete("/my-memory/{folder}")
+def delete_my_memory(folder: str, client_id: str):
+    """Wipe just this visitor's one folder — scoped, unlike DELETE /reset
+    below which wipes every visitor's data. Prefer this for clearing test
+    data on a live, shared deployment."""
+    deleted = reset_session(scoped_session(client_id, folder))
+    return {"deleted": deleted}
 
 
 @app.get("/folders")
@@ -104,18 +114,6 @@ def folders():
     active first. Not used by the dashboard (see /my-folders); kept for
     direct inspection while testing, e.g. via /docs or curl."""
     return list_folders()
-
-
-@app.get("/whoami")
-def whoami(request: Request):
-    """Diagnostic: what IP this dashboard currently sees you as, and the raw
-    X-Forwarded-For header it came from. Hit this before and after a refresh
-    — if the ip differs, that's a genuinely different session by design (see
-    scoped_session's docstring), not a bug losing data."""
-    return {
-        "ip": client_ip(request),
-        "x_forwarded_for_raw": request.headers.get("x-forwarded-for"),
-    }
 
 
 @app.get("/info")
@@ -150,7 +148,10 @@ def get_latest_endpoint(session_id: str):
 
 @app.delete("/reset")
 def reset():
-    """Wipe every fact in every folder. Not linked from the UI on purpose —
-    a deliberate call, for clearing dev/test data between demo runs."""
+    """Wipe every fact for every visitor, globally. Not linked from the UI
+    on purpose. Prefer DELETE /my-memory/{folder} instead on any deployment
+    with real visitors — this one has real collateral-damage risk, it can
+    silently delete someone else's live session, not just your own test
+    data."""
     deleted = reset_all()
     return {"deleted": deleted}

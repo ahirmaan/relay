@@ -230,13 +230,32 @@
 </div>
 
 <script>
-// Identity is now the visitor's IP address, decided server-side (see
-// client_ip() in app/main.py) — not a random id generated in the browser,
-// so a page refresh or a different browser on the same network still sees
-// the same memory instead of starting over. Folder is just a namespace
-// under that IP, picked here in the UI and sent with every request; the
-// server does the actual IP + folder -> session_id scoping, this file never
-// sees or needs the real IP itself.
+// Identity is a random id this browser generates once and stores in
+// localStorage, sent with every request — not the visitor's IP. IP-based
+// identity was tried and reverted: a visitor's IP address isn't guaranteed
+// stable request-to-request (mobile data, some Wi-Fi, corporate NAT), which
+// silently changes who the server thinks you are on ANY request, not just
+// across a refresh — a real reported bug (facts vanishing on a plain folder
+// switch) that a stored client id doesn't have, since it isn't tied to the
+// network at all. Folder is a namespace under that id, picked here and sent
+// with every request; the server does the id + folder -> session_id
+// scoping (see scoped_session in app/main.py).
+function getClientId() {
+  try {
+    let id = localStorage.getItem('relay_client_id');
+    if (!id) {
+      id = 'visitor-' + Math.random().toString(36).slice(2, 10) + Date.now().toString(36);
+      localStorage.setItem('relay_client_id', id);
+    }
+    return id;
+  } catch (e) {
+    // storage blocked (private mode, extensions) — still works for this
+    // page load, just won't be remembered on the next one
+    return 'visitor-' + Math.random().toString(36).slice(2, 10);
+  }
+}
+const CLIENT_ID = getClientId();
+
 let currentFolder = 'general';
 
 function getStoredFolder() {
@@ -271,7 +290,7 @@ function rememberFolder(name) {
 }
 
 async function loadFolders() {
-  const res = await fetch('/my-folders');
+  const res = await fetch(`/my-folders?client_id=${encodeURIComponent(CLIENT_ID)}`);
   const folders = await res.json();
   const names = new Set(folders.map(f => f.folder));
   for (const name of getKnownFolders()) names.add(name);
@@ -437,7 +456,7 @@ async function loadMemory() {
   // this request was actually for, and drop the result if currentFolder has
   // since moved on.
   const requestedFolder = currentFolder;
-  const res = await fetch(`/my-memory/${encodeURIComponent(requestedFolder)}`);
+  const res = await fetch(`/my-memory/${encodeURIComponent(requestedFolder)}?client_id=${encodeURIComponent(CLIENT_ID)}`);
   const facts = await res.json();
   if (requestedFolder !== currentFolder) return;
   renderMemory(facts);
@@ -490,7 +509,7 @@ async function send() {
     const res = await fetch('/chat', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ message, folder: currentFolder })
+      body: JSON.stringify({ message, folder: currentFolder, client_id: CLIENT_ID })
     });
     if (!res.ok) throw new Error(await res.text());
     const data = await res.json();
