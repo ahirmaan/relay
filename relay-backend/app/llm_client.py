@@ -46,7 +46,7 @@ Facts:"""
 
 REPLY_PROMPT = """You are a helpful AI assistant chatting with a user about a project. Reply naturally and briefly (one or two sentences) to their message below.
 
-Here is everything currently saved to memory for this conversation:
+Here is everything currently saved to memory, across all of this user's folders (each section marked "[Folder: name]"):
 \"\"\"{memory_context}\"\"\"
 
 If the user asks about, or references, something that IS covered in the memory above, answer using it directly and specifically — don't say you don't know something that's right there. If they ask about something that is NOT in the memory above, say plainly that you don't have that saved, do not invent an answer or pretend it's there. Never state a fact as if from memory unless it's actually present in the block above.

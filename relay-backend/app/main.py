@@ -55,6 +55,33 @@ def root():
     return FileResponse(STATIC_DIR / "index.html")
 
 
+def build_memory_context(client_id: str) -> str:
+    """Every one of this visitor's folders and facts, labeled by folder.
+
+    Started as just the active folder's chain, which broke a real, direct
+    case: sitting in "general" and asking to "fetch Kairos from the timer
+    folder" got a flat "I don't have that" even though Kairos was saved
+    right there under "timer" — the active folder was all the reply step
+    had ever been shown. Passing every folder in means a fetch works
+    regardless of which one happens to be active, at the cost of the reply
+    model seeing across folders it isn't currently "in" — an acceptable
+    tradeoff for one visitor's own data, still fully separate from anyone
+    else's.
+    """
+    prefix = client_id + "::"
+    blocks = []
+    for f in list_folders():
+        if not f["session_id"].startswith(prefix):
+            continue
+        folder_name = f["session_id"][len(prefix):]
+        chain = get_chain(f["session_id"])
+        if not chain:
+            continue
+        lines = "\n".join(f"{c['category']}: {c['content']}" for c in chain)
+        blocks.append(f"[Folder: {folder_name}]\n{lines}")
+    return "\n\n".join(blocks)
+
+
 @app.post("/chat")
 def chat(payload: ChatIn):
     """Chat turn where the assistant — not the caller — decides what's worth
@@ -65,14 +92,11 @@ def chat(payload: ChatIn):
     explicitly hands over text and a raw session_id to extract into (used by
     the MCP server, not the dashboard).
 
-    Also fetches this folder's existing chain first and hands it to
-    chat_turn as context, so "what did I save about X" or "fetch Y from
-    memory" can actually be answered — this used to be write-only, the
-    reply had no visibility into anything already saved.
+    New facts are still written to the active folder only — only reading
+    for the reply spans every folder, see build_memory_context.
     """
     session_id = scoped_session(payload.client_id, payload.folder)
-    existing = get_chain(session_id)
-    memory_context = "\n".join(f"{f['category']}: {f['content']}" for f in existing)
+    memory_context = build_memory_context(payload.client_id)
     reply, facts = chat_turn(payload.message, memory_context=memory_context)
     saved = append_facts(facts, session_id, "assistant") if facts else []
     return {"reply": reply, "saved_facts": saved, "folder": payload.folder or "general"}
