@@ -487,7 +487,10 @@ function renderMemory(facts) {
       const badge = historyCount > 0
         ? `<span class="history-badge">${isExpanded ? '−' : '+'}${historyCount}</span>`
         : '';
-      const tag = historyCount > 0 ? 'updated' : 'new';
+      // The "updated" pill is gone — the bold badge above already says
+      // that. "new" still shows for a fact with no history at all, nothing
+      // else marks it as fresh otherwise.
+      const tagRow = historyCount === 0 ? `<div class="tag-row"><span class="link-tag">new</span></div>` : '';
       // No strikethrough — an earlier value isn't crossed out, just shown
       // plainly as what it used to be.
       const history = isExpanded
@@ -504,7 +507,7 @@ function renderMemory(facts) {
           ${badge}
         </div>
         ${history}
-        <div class="tag-row"><span class="link-tag">${tag}</span></div>
+        ${tagRow}
       </div>`;
     }).join('');
     return `<div class="category-group">
