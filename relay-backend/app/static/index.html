@@ -157,16 +157,17 @@
 
   /* Only the current value shows in the card by default — history isn't
      spelled out inline, just counted: a "+N" badge for how many earlier
-     values this one replaced, click it to expand/collapse the list. */
+     values this one replaced. The whole card is the click target to
+     expand/collapse, not just the badge. */
   .content-row { display: flex; align-items: flex-start; justify-content: space-between; gap: 0.5rem; }
+  .fact-card.expandable { cursor: pointer; }
+  .fact-card.expandable:hover { border-color: #C7C6C1; }
   .history-badge {
     flex-shrink: 0; font-size: 0.68rem; font-weight: 600; color: var(--ink-soft);
-    background: var(--accent-soft); border: none; border-radius: 5px; padding: 0.08rem 0.4rem;
-    font-family: var(--sans); cursor: pointer;
+    background: var(--accent-soft); border-radius: 5px; padding: 0.08rem 0.4rem;
   }
-  .history-badge:hover { background: var(--border); color: var(--ink); }
   .history-list { margin-top: 0.4rem; padding-top: 0.35rem; border-top: 1px dashed var(--border); }
-  .history-item { color: var(--ink-soft); text-decoration: line-through; font-size: 0.78rem; line-height: 1.6; }
+  .history-item { color: var(--ink-soft); font-size: 0.78rem; line-height: 1.6; }
 
   /* ============================================================
      Desktop enhancement: chat + memory side by side, tab bar gone.
@@ -484,16 +485,20 @@ function renderMemory(facts) {
       const isExpanded = historyCount > 0 && expandedChains.has(latest.id);
 
       const badge = historyCount > 0
-        ? `<button class="history-badge" data-chain-id="${latest.id}">${isExpanded ? '−' : '+'}${historyCount}</button>`
+        ? `<span class="history-badge">${isExpanded ? '−' : '+'}${historyCount}</span>`
         : '';
       const tag = historyCount > 0 ? 'updated' : 'new';
+      // No strikethrough — an earlier value isn't crossed out, just shown
+      // plainly as what it used to be.
       const history = isExpanded
         ? `<div class="history-list">${chain.slice(0, -1).map(f =>
             `<div class="history-item">${f.content}</div>`
           ).join('')}</div>`
         : '';
+      const cardClass = historyCount > 0 ? 'fact-card expandable' : 'fact-card';
+      const chainAttr = historyCount > 0 ? ` data-chain-id="${latest.id}"` : '';
 
-      return `<div class="fact-card">
+      return `<div class="${cardClass}"${chainAttr}>
         <div class="content-row">
           <div class="content">${latest.content}</div>
           ${badge}
@@ -508,9 +513,11 @@ function renderMemory(facts) {
     </div>`;
   }).join('');
 
-  el.querySelectorAll('.history-badge').forEach(btn => {
-    btn.addEventListener('click', () => {
-      const id = Number(btn.dataset.chainId);
+  // The whole card is the click target now, not just the badge — clicking
+  // anywhere on it toggles the history, the badge is just a visual hint.
+  el.querySelectorAll('.fact-card.expandable').forEach(card => {
+    card.addEventListener('click', () => {
+      const id = Number(card.dataset.chainId);
       if (expandedChains.has(id)) expandedChains.delete(id);
       else expandedChains.add(id);
       renderMemory(facts); // re-render with the same data, just toggled
