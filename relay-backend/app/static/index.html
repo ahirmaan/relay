@@ -106,6 +106,8 @@
   .bubble { max-width: 86%; padding: 0.65rem 0.9rem; border-radius: 10px; font-size: 0.92rem; line-height: 1.55; }
   .bubble.user { align-self: flex-end; background: var(--ink); color: #fff; border-bottom-right-radius: 3px; }
   .bubble.assistant { align-self: flex-start; background: var(--accent-soft); color: var(--ink); border-bottom-left-radius: 3px; }
+  .bubble.thinking { color: var(--ink-soft); font-style: italic; animation: thinking-pulse 1.4s ease-in-out infinite; }
+  @keyframes thinking-pulse { 0%, 100% { opacity: 0.55; } 50% { opacity: 1; } }
 
   #empty-state { margin: auto; text-align: center; max-width: 320px; padding: 0 1rem; }
   #empty-state .glyph { font-family: var(--serif); font-size: 2.2rem; color: var(--ink); margin-bottom: 0.6rem; }
@@ -441,6 +443,36 @@ async function loadMemory() {
   renderMemory(facts);
 }
 
+// A real request here can take a few seconds (an LLM call, sometimes a
+// retry on top of that), and there's no other status text shown anymore
+// now that saving is explicit-only — without this it just goes quiet after
+// you hit send, which reads as broken rather than working. Cycles through
+// a few phrases so it visibly keeps moving instead of sitting on one
+// static word.
+const THINKING_PHRASES = ['Thinking', 'Brewing', 'Piecing it together', 'Fetching from memory'];
+let thinkingTimer = null;
+
+function showThinking() {
+  const chat = document.getElementById('chat');
+  const empty = document.getElementById('empty-state');
+  if (empty) empty.remove();
+  const div = document.createElement('div');
+  div.className = 'bubble assistant thinking';
+  div.id = 'thinking-bubble';
+  chat.appendChild(div);
+  chat.scrollTop = chat.scrollHeight;
+
+  let i = 0;
+  const tick = () => { div.textContent = THINKING_PHRASES[i % THINKING_PHRASES.length] + '…'; i += 1; };
+  tick();
+  thinkingTimer = setInterval(tick, 900);
+}
+
+function hideThinking() {
+  clearInterval(thinkingTimer);
+  document.getElementById('thinking-bubble')?.remove();
+}
+
 async function send() {
   const input = document.getElementById('message');
   const message = input.value.trim();
@@ -452,6 +484,7 @@ async function send() {
   status.className = '';
   status.textContent = ''; // no "deciding..." message — nothing is saved unless explicitly asked, so there's nothing to announce mid-flight
   document.getElementById('send').disabled = true;
+  showThinking();
 
   try {
     const res = await fetch('/chat', {
@@ -461,6 +494,7 @@ async function send() {
     });
     if (!res.ok) throw new Error(await res.text());
     const data = await res.json();
+    hideThinking();
     bubble('assistant', data.reply);
     if (data.saved_facts && data.saved_facts.length) {
       // Same bubble style as the assistant's own reply, not a separate
@@ -477,6 +511,7 @@ async function send() {
     // no explicit save ask -> saved_facts is always empty, that's the
     // expected default now, not worth a status line every single message
   } catch (e) {
+    hideThinking();
     status.className = '';
     status.textContent = 'error: ' + e.message;
   } finally {
