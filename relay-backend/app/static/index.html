@@ -701,11 +701,23 @@ if (SpeechRecognitionAPI) {
   const waveBars = micWave.querySelectorAll('span');
 
   async function startWaveVisualizer() {
+    let stream;
     try {
-      micStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      stream = await navigator.mediaDevices.getUserMedia({ audio: true });
     } catch (e) {
       return; // permission denied — bars just stay flat, SpeechRecognition handles its own error separately
     }
+    // getUserMedia's permission prompt can still be on screen when
+    // recognition (a separate request for the same mic) already errors out
+    // and reverts the UI — by the time this promise resolves, `listening`
+    // may already be false. Without this check, a stream opens for a
+    // session that already ended, with nothing left to ever stop it: the
+    // exact "UI says idle, mic indicator stays lit" bug reported directly.
+    if (!listening) {
+      stream.getTracks().forEach((t) => t.stop());
+      return;
+    }
+    micStream = stream;
     audioContext = new (window.AudioContext || window.webkitAudioContext)();
     const source = audioContext.createMediaStreamSource(micStream);
     analyser = audioContext.createAnalyser();
