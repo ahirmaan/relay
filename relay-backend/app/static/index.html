@@ -140,16 +140,17 @@
      static icon plus a color change wasn't enough of a "this is actually
      recording right now" signal. */
   #mic.listening { background: #B23B3B; border-color: #B23B3B; color: #fff; }
+  /* [hidden] and a class selector are equal specificity, and an author
+     rule wins that tie over the browser default — .wave-bars setting its
+     own `display` was silently defeating the `hidden` attribute, so the
+     mic icon and the wave bars were both showing at once. Same mistake
+     already fixed once for #onboarding; missed it here. Explicit now. */
+  .wave-bars[hidden] { display: none; }
   .wave-bars { display: inline-flex; align-items: center; justify-content: center; gap: 2.5px; height: 16px; }
   .wave-bars span {
     display: inline-block; width: 3px; height: 4px; background: currentColor; border-radius: 2px;
-    animation: wave-bounce 0.9s ease-in-out infinite;
+    transition: height 0.08s ease;
   }
-  .wave-bars span:nth-child(1) { animation-delay: 0s; }
-  .wave-bars span:nth-child(2) { animation-delay: 0.15s; }
-  .wave-bars span:nth-child(3) { animation-delay: 0.3s; }
-  .wave-bars span:nth-child(4) { animation-delay: 0.45s; }
-  @keyframes wave-bounce { 0%, 100% { height: 4px; } 50% { height: 15px; } }
 
   /* Live transcript, filled in as the visitor speaks — shown above the
      input, a rectangle the growing text appears in, not silence until
@@ -686,6 +687,55 @@ if (SpeechRecognitionAPI) {
   const caption = document.getElementById('voice-caption');
   micBtn.hidden = false;
 
+  // The waveform reacts to your actual voice level, not a canned loop —
+  // reported directly that it "just plays without stopping" regardless of
+  // whether anyone was talking. This is a second, separate use of the
+  // microphone (Web Audio's AnalyserNode reads amplitude) running
+  // alongside SpeechRecognition (which only ever returns text, never raw
+  // audio level) — same underlying mic permission, two different APIs
+  // reading it for two different reasons.
+  let audioContext = null;
+  let analyser = null;
+  let micStream = null;
+  let waveFrame = null;
+  const waveBars = micWave.querySelectorAll('span');
+
+  async function startWaveVisualizer() {
+    try {
+      micStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    } catch (e) {
+      return; // permission denied — bars just stay flat, SpeechRecognition handles its own error separately
+    }
+    audioContext = new (window.AudioContext || window.webkitAudioContext)();
+    const source = audioContext.createMediaStreamSource(micStream);
+    analyser = audioContext.createAnalyser();
+    analyser.fftSize = 64;
+    source.connect(analyser);
+    const data = new Uint8Array(analyser.frequencyBinCount);
+
+    (function tick() {
+      analyser.getByteFrequencyData(data);
+      const level = data.reduce((a, b) => a + b, 0) / data.length / 255; // 0 (silence) .. 1 (loud)
+      waveBars.forEach((bar, i) => {
+        const wobble = 0.75 + Math.sin(Date.now() / 140 + i) * 0.25; // slight per-bar offset, not a flat block
+        const px = 4 + level * 18 * wobble; // flat 4px at silence, up to ~22px when speaking
+        bar.style.height = Math.max(4, Math.min(22, px)) + 'px';
+      });
+      waveFrame = requestAnimationFrame(tick);
+    })();
+  }
+
+  function stopWaveVisualizer() {
+    if (waveFrame) cancelAnimationFrame(waveFrame);
+    waveFrame = null;
+    if (micStream) micStream.getTracks().forEach((t) => t.stop());
+    micStream = null;
+    if (audioContext) audioContext.close();
+    audioContext = null;
+    analyser = null;
+    waveBars.forEach((bar) => { bar.style.height = '4px'; }); // flat line at rest
+  }
+
   const recognition = new SpeechRecognitionAPI();
   recognition.lang = 'en-US';
   recognition.interimResults = true;
@@ -697,10 +747,18 @@ if (SpeechRecognitionAPI) {
   function setListening(on) {
     listening = on;
     micBtn.classList.toggle('listening', on);
-    micIcon.hidden = on;
+    // .hidden doesn't reliably reflect to the actual attribute on <svg>
+    // elements the way it does on plain HTML elements — confirmed directly:
+    // the JS property read back true, but hasAttribute('hidden') stayed
+    // false, so the icon never actually hid. Toggling its style directly
+    // instead, which works regardless of element type.
+    micIcon.style.display = on ? 'none' : '';
     micWave.hidden = !on;
     caption.hidden = !on;
-    if (!on) caption.textContent = '';
+    if (!on) {
+      caption.textContent = '';
+      stopWaveVisualizer();
+    }
   }
 
   recognition.addEventListener('result', (e) => {
@@ -735,6 +793,7 @@ if (SpeechRecognitionAPI) {
     finalTranscript = '';
     caption.textContent = 'Listening…';
     setListening(true);
+    startWaveVisualizer();
     try {
       recognition.start();
     } catch (e) {
