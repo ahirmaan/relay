@@ -130,36 +130,6 @@
   #send:hover { background: #333; }
   #send:active { transform: scale(0.97); }
   #send:disabled { background: #CFCFCC; cursor: default; transform: none; }
-  #mic {
-    flex-shrink: 0; width: 2.5rem; display: flex; align-items: center; justify-content: center;
-    border-radius: 8px; border: 1px solid var(--border); background: var(--surface); color: var(--ink-soft);
-    cursor: pointer; transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
-  }
-  #mic:hover { border-color: #C7C6C1; color: var(--ink); }
-  /* Listening state swaps the mic glyph for an animated waveform — a
-     static icon plus a color change wasn't enough of a "this is actually
-     recording right now" signal. */
-  #mic.listening { background: #B23B3B; border-color: #B23B3B; color: #fff; }
-  /* [hidden] and a class selector are equal specificity, and an author
-     rule wins that tie over the browser default — .wave-bars setting its
-     own `display` was silently defeating the `hidden` attribute, so the
-     mic icon and the wave bars were both showing at once. Same mistake
-     already fixed once for #onboarding; missed it here. Explicit now. */
-  .wave-bars[hidden] { display: none; }
-  .wave-bars { display: inline-flex; align-items: center; justify-content: center; gap: 2.5px; height: 16px; }
-  .wave-bars span {
-    display: inline-block; width: 3px; height: 4px; background: currentColor; border-radius: 2px;
-    transition: height 0.08s ease;
-  }
-
-  /* Live transcript, filled in as the visitor speaks — shown above the
-     input, a rectangle the growing text appears in, not silence until
-     they stop talking. */
-  #voice-caption {
-    margin-bottom: 0.55rem; padding: 0.6rem 0.8rem; border-radius: 8px;
-    border: 1px solid var(--border); background: var(--bg); color: var(--ink);
-    font-size: 0.9rem; line-height: 1.5; min-height: 1.4em;
-  }
   #status { font-size: 0.72rem; color: var(--ink-soft); margin-top: 0.5rem; min-height: 1em; }
   #status:empty { margin-top: 0; min-height: 0; } /* no reserved gap when there's nothing to show — status is blank most of the time now that saving is explicit-only */
   #status.saving { color: #7A6A2E; }
@@ -260,18 +230,8 @@
     </div>
   </div>
   <div id="composer">
-    <div id="voice-caption" hidden></div>
     <div id="input-row">
       <input id="message" placeholder="Say something...">
-      <button id="mic" title="Speak instead of typing" hidden>
-        <svg id="mic-icon" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"></path>
-          <path d="M19 10v2a7 7 0 0 1-14 0v-2"></path>
-          <line x1="12" y1="19" x2="12" y2="23"></line>
-          <line x1="8" y1="23" x2="16" y2="23"></line>
-        </svg>
-        <span id="mic-wave" class="wave-bars" hidden><span></span><span></span><span></span><span></span></span>
-      </button>
       <button id="send">Send</button>
     </div>
     <div id="status"></div>
@@ -669,152 +629,12 @@ document.getElementById('message').addEventListener('keydown', (e) => {
   if (e.key === 'Enter') send();
 });
 
-// Voice input: the browser's own on-device speech recognition, not a
-// hosted STT API — free, no key, no extra backend call. While listening,
-// the growing transcript shows live in a caption box above the composer
-// (interimResults), so speaking isn't silence until you stop. Tapping the
-// mic again to stop drops the final text into the message input for
-// review, same as if you'd typed it — it does NOT auto-send. Voice can
-// mishear a word, and nothing should get permanently saved as a fact
-// without a chance to catch that first; from there it's the exact same
-// send()/`/chat` path a typed message takes, so "analyze first, save only
-// if explicit" is already handled, nothing special needed for voice.
-const SpeechRecognitionAPI = window.SpeechRecognition || window.webkitSpeechRecognition;
-if (SpeechRecognitionAPI) {
-  const micBtn = document.getElementById('mic');
-  const micIcon = document.getElementById('mic-icon');
-  const micWave = document.getElementById('mic-wave');
-  const caption = document.getElementById('voice-caption');
-  micBtn.hidden = false;
-
-  // The waveform reacts to your actual voice level, not a canned loop —
-  // reported directly that it "just plays without stopping" regardless of
-  // whether anyone was talking. This is a second, separate use of the
-  // microphone (Web Audio's AnalyserNode reads amplitude) running
-  // alongside SpeechRecognition (which only ever returns text, never raw
-  // audio level) — same underlying mic permission, two different APIs
-  // reading it for two different reasons.
-  let audioContext = null;
-  let analyser = null;
-  let micStream = null;
-  let waveFrame = null;
-  const waveBars = micWave.querySelectorAll('span');
-
-  async function startWaveVisualizer() {
-    let stream;
-    try {
-      stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-    } catch (e) {
-      return; // permission denied — bars just stay flat, SpeechRecognition handles its own error separately
-    }
-    // getUserMedia's permission prompt can still be on screen when
-    // recognition (a separate request for the same mic) already errors out
-    // and reverts the UI — by the time this promise resolves, `listening`
-    // may already be false. Without this check, a stream opens for a
-    // session that already ended, with nothing left to ever stop it: the
-    // exact "UI says idle, mic indicator stays lit" bug reported directly.
-    if (!listening) {
-      stream.getTracks().forEach((t) => t.stop());
-      return;
-    }
-    micStream = stream;
-    audioContext = new (window.AudioContext || window.webkitAudioContext)();
-    const source = audioContext.createMediaStreamSource(micStream);
-    analyser = audioContext.createAnalyser();
-    analyser.fftSize = 64;
-    source.connect(analyser);
-    const data = new Uint8Array(analyser.frequencyBinCount);
-
-    (function tick() {
-      analyser.getByteFrequencyData(data);
-      const level = data.reduce((a, b) => a + b, 0) / data.length / 255; // 0 (silence) .. 1 (loud)
-      waveBars.forEach((bar, i) => {
-        const wobble = 0.75 + Math.sin(Date.now() / 140 + i) * 0.25; // slight per-bar offset, not a flat block
-        const px = 4 + level * 18 * wobble; // flat 4px at silence, up to ~22px when speaking
-        bar.style.height = Math.max(4, Math.min(22, px)) + 'px';
-      });
-      waveFrame = requestAnimationFrame(tick);
-    })();
-  }
-
-  function stopWaveVisualizer() {
-    if (waveFrame) cancelAnimationFrame(waveFrame);
-    waveFrame = null;
-    if (micStream) micStream.getTracks().forEach((t) => t.stop());
-    micStream = null;
-    if (audioContext) audioContext.close();
-    audioContext = null;
-    analyser = null;
-    waveBars.forEach((bar) => { bar.style.height = '4px'; }); // flat line at rest
-  }
-
-  const recognition = new SpeechRecognitionAPI();
-  recognition.lang = 'en-US';
-  recognition.interimResults = true;
-  recognition.continuous = true; // keep listening through pauses until the visitor explicitly stops
-  recognition.maxAlternatives = 1;
-  let listening = false;
-  let finalTranscript = '';
-
-  function setListening(on) {
-    listening = on;
-    micBtn.classList.toggle('listening', on);
-    // .hidden doesn't reliably reflect to the actual attribute on <svg>
-    // elements the way it does on plain HTML elements — confirmed directly:
-    // the JS property read back true, but hasAttribute('hidden') stayed
-    // false, so the icon never actually hid. Toggling its style directly
-    // instead, which works regardless of element type.
-    micIcon.style.display = on ? 'none' : '';
-    micWave.hidden = !on;
-    caption.hidden = !on;
-    if (!on) {
-      caption.textContent = '';
-      stopWaveVisualizer();
-    }
-  }
-
-  recognition.addEventListener('result', (e) => {
-    let interim = '';
-    for (let i = e.resultIndex; i < e.results.length; i++) {
-      const piece = e.results[i][0].transcript;
-      if (e.results[i].isFinal) finalTranscript += piece + ' ';
-      else interim += piece;
-    }
-    caption.textContent = (finalTranscript + interim).trim() || 'Listening…';
-  });
-  recognition.addEventListener('end', () => {
-    setListening(false);
-    const transcript = finalTranscript.trim();
-    finalTranscript = '';
-    if (transcript) {
-      const input = document.getElementById('message');
-      input.value = transcript;
-      input.focus();
-    }
-  });
-  recognition.addEventListener('error', () => {
-    setListening(false);
-    finalTranscript = '';
-  });
-
-  micBtn.addEventListener('click', () => {
-    if (listening) {
-      recognition.stop(); // finalizes and fires 'end', which fills the input
-      return;
-    }
-    finalTranscript = '';
-    caption.textContent = 'Listening…';
-    setListening(true);
-    startWaveVisualizer();
-    try {
-      recognition.start();
-    } catch (e) {
-      setListening(false); // e.g. already-started or mic permission denied
-    }
-  });
-}
-// No SpeechRecognition support (e.g. some non-Chromium browsers) — the mic
-// button just stays hidden, typing still works exactly as before.
+// Voice input (mic button, live captions, waveform) was built and then
+// pulled back out — it kept surfacing new edge cases (a race that could
+// leave a live mic stream open with nothing to stop it, an <svg> element
+// quirk where .hidden silently didn't hide) and wasn't worth the added
+// risk this close to the deadline. Only add it back if there's real spare
+// time to actually test it properly on a real device.
 
 (async function init() {
   // ?folder=name overrides the remembered one, for jumping straight to a
